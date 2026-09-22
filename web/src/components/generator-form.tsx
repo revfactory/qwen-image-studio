@@ -290,6 +290,13 @@ export function GeneratorForm({ engine, loadRequest, referenceRequest, onSubmit 
     setSelectedRefs(new Set());
     toast(`참조 이미지 ${drop.size}장을 제거했습니다.`);
   };
+  const removeAllReferences = () => {
+    const n = form.references.length;
+    if (n === 0) return;
+    patchFn(() => ({ references: [] }));
+    setSelectedRefs(new Set());
+    toast(`참조 이미지 ${n}장을 모두 제거했습니다.`);
+  };
   const editing = form.references.length > 0;
 
   const applyQuality = (id: string) => {
@@ -434,6 +441,17 @@ export function GeneratorForm({ engine, loadRequest, referenceRequest, onSubmit 
                     선택 해제
                   </Button>
                 </>
+              ) : form.references.length > 1 ? (
+                <Button
+                  variant="ghost"
+                  size="xs"
+                  className="text-destructive hover:text-destructive"
+                  title="참조 이미지를 모두 목록에서 제거합니다 (서버 파일은 보관함에 남습니다)"
+                  onClick={removeAllReferences}
+                >
+                  <Trash2Icon data-icon="inline-start" />
+                  모두 제거
+                </Button>
               ) : null}
               <Button variant="ghost" size="xs" title="올려 둔 참조 이미지에서 고르기" onClick={() => setLibraryOpen(true)}>
                 <ImagesIcon data-icon="inline-start" />
@@ -485,7 +503,7 @@ export function GeneratorForm({ engine, loadRequest, referenceRequest, onSubmit 
                 편집도 할 수 있습니다 (최대 {MAX_BATCH_REFERENCES}장).
               </p>
             ) : (
-              <div className="flex flex-wrap gap-2">
+              <div className="flex max-h-64 flex-wrap gap-2 overflow-y-auto">
                 {form.references.map((id, i) => {
                   const isSelected = selectedRefs.has(id);
                   return (

@@ -182,10 +182,23 @@ export function Gallery({ jobs, loaded, onDelete, onLoadParams, onRegenerate, on
               </Button>
             </>
           ) : (
-            <Button variant="outline" size="sm" disabled={visible.length === 0} onClick={() => setSelectMode(true)}>
-              <CheckSquareIcon data-icon="inline-start" />
-              선택
-            </Button>
+            <>
+              <Button variant="outline" size="sm" disabled={visible.length === 0} onClick={() => setSelectMode(true)}>
+                <CheckSquareIcon data-icon="inline-start" />
+                선택
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                className="text-destructive hover:text-destructive"
+                disabled={visible.length === 0}
+                title={filter === "all" ? "갤러리의 모든 항목을 삭제합니다" : "현재 필터에 보이는 항목을 모두 삭제합니다"}
+                onClick={() => setConfirmIds(visible.map((j) => j.id))}
+              >
+                <Trash2Icon data-icon="inline-start" />
+                전체 삭제{visible.length > 0 ? ` (${visible.length})` : ""}
+              </Button>
+            </>
           )}
         </div>
       </div>
