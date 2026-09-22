@@ -1,0 +1,19 @@
+# 모델·실행 환경 (수십 GB) — setup-comfyui.sh 로 다시 만든다
+/ComfyUI/
+/models-staging/
+
+# 생성 결과와 작업 기록
+/outputs/
+/web/data/
+
+# 로그·임시 파일
+*.log
+/.playwright-mcp/
+/prompt.txt
+.DS_Store
+__pycache__/
+*.pyc
+
+# 웹 앱 빌드 산출물 (web/.gitignore 에도 있음)
+/web/node_modules/
+/web/.next/
