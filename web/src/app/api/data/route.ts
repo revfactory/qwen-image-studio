@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { removeJobFiles } from "@/lib/server/files";
+import { removeAllJobImages, removeJobFiles } from "@/lib/server/files";
 import { publishEngineStatus, worker } from "@/lib/server/queue";
 import { store } from "@/lib/server/store";
 import { removeAllUploads } from "@/lib/server/uploads";
@@ -36,7 +36,9 @@ export async function DELETE(req: Request) {
     removeJobFiles(job);
     store.remove(job.id);
   }
+  // 기록에 없는 파일(중단된 작업의 중간 산출물 등)까지 폴더 단위로 지운다.
+  const images = removeAllJobImages();
   const uploads = removeAllUploads();
   void publishEngineStatus();
-  return NextResponse.json({ jobs: jobs.length, cancelled, uploads });
+  return NextResponse.json({ jobs: jobs.length, cancelled, images, uploads });
 }

@@ -51,9 +51,18 @@ fi
 BASE="http://127.0.0.1:${PORT}"
 if curl -sf -m 3 -o /dev/null "$BASE/api/status"; then
   echo "웹 앱이 켜져 있어 서버 API 로 지웁니다 ($BASE)..."
-  RESULT=$(curl -sf -m 120 -X DELETE "$BASE/api/data" -H 'Content-Type: application/json' -d '{"confirm":"ALL"}') \
-    || { echo "서버 API 호출에 실패했습니다. 웹 앱을 끄고 다시 실행하면 파일을 직접 지웁니다."; exit 1; }
-  echo "서버 응답: $RESULT"
+  HTTP=$(curl -s -m 180 -o /tmp/qwen-reset-response.json -w '%{http_code}' -X DELETE "$BASE/api/data" \
+    -H 'Content-Type: application/json' -d '{"confirm":"ALL"}' || echo 000)
+  BODY=$(cat /tmp/qwen-reset-response.json 2>/dev/null || true); rm -f /tmp/qwen-reset-response.json
+  if [[ "$HTTP" != "200" ]]; then
+    echo "서버 API 호출에 실패했습니다 (HTTP $HTTP). $BODY"
+    if [[ "$HTTP" == "404" ]]; then
+      echo "실행 중인 웹 앱이 이 기능이 없는 옛 빌드입니다. ./run-web.sh build 로 다시 빌드한 뒤 서버를 재시작하세요."
+    fi
+    echo "또는 웹 앱을 끄고 다시 실행하면 파일을 직접 지웁니다."
+    exit 1
+  fi
+  echo "서버 응답: $BODY"
 else
   echo "웹 앱이 꺼져 있어 파일을 직접 지웁니다..."
   rm -f "$JOBS_FILE"
