@@ -81,12 +81,12 @@ if (( SKIP_MODELS )); then
 else
   mkdir -p "$COMFY/models/diffusion_models" "$COMFY/models/text_encoders" "$COMFY/models/vae"
   download() { # $1=repo $2=repo 안 경로 $3=대상 폴더
-    local repo="$1" path="$2" dest="$3" name="${2##*/}"
+    local repo="$1" file="$2" dest="$3" name="${2##*/}"
     if [[ -f "$dest/$name" ]]; then ok "$name 이미 있음"; return; fi
-    info "내려받기: $repo/$path"
-    uvx --from "huggingface_hub[hf_xet]" hf download "$repo" "$path" --local-dir "$dest"
+    info "내려받기: $repo/$file"
+    uvx --from "huggingface_hub[hf_xet]" hf download "$repo" "$file" --local-dir "$dest"
     # --local-dir 은 repo 안의 하위 폴더 구조를 그대로 만들므로 파일을 대상 폴더로 올린다
-    if [[ "$path" == */* && -f "$dest/$path" ]]; then mv "$dest/$path" "$dest/$name"; rmdir "$dest/${path%/*}" 2>/dev/null || true; fi
+    if [[ "$file" == */* && -f "$dest/$file" ]]; then mv "$dest/$file" "$dest/$name"; rmdir "$dest/${file%/*}" 2>/dev/null || true; fi
     rm -rf "$dest/.cache"
   }
   download abenzerps/Qwen-Image-2.1-GGUF qwen-image-2.1-Q8_0.gguf "$COMFY/models/diffusion_models"

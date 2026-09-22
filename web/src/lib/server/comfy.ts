@@ -474,11 +474,12 @@ class ComfyClient {
       .find((img) => img.type === "output");
     if (!image) throw new Error("ComfyUI 가 출력 이미지를 남기지 않았습니다.");
 
-    const src = path.join(OUTPUTS_DIR, image.subfolder ?? "", image.filename);
+    // ComfyUI 가 알려준 파일명으로 만든 경로라 빌드 시 추적 대상이 아니다
+    const src = path.join(/*turbopackIgnore: true*/ OUTPUTS_DIR, image.subfolder ?? "", image.filename);
     const dest = path.join(WEB_IMAGES_DIR, `${job.id}.png`);
     fs.mkdirSync(WEB_IMAGES_DIR, { recursive: true });
-    if (path.resolve(src) !== path.resolve(dest)) {
-      if (!fs.existsSync(src)) throw new Error(`출력 파일을 찾을 수 없습니다: ${src}`);
+    if (path.resolve(/*turbopackIgnore: true*/ src) !== path.resolve(dest)) {
+      if (!fs.existsSync(/*turbopackIgnore: true*/ src)) throw new Error(`출력 파일을 찾을 수 없습니다: ${src}`);
       fs.renameSync(src, dest);
     }
     const { width, height } = readPngSize(dest);
