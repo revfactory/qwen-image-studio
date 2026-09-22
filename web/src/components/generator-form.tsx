@@ -65,8 +65,10 @@ export interface LoadRequest {
 }
 
 export interface ReferenceRequest {
-  /** 업로드 ID */
-  id: string;
+  /** 업로드 ID 목록 */
+  ids: string[];
+  /** add: 현재 목록 뒤에 덧붙인다 (최대 장수 초과분은 버림). replace: 이 이미지들로 교체한다 */
+  mode: "add" | "replace";
   nonce: number;
 }
 
@@ -126,6 +128,7 @@ export function GeneratorForm({ engine, loadRequest, referenceRequest, onSubmit 
   const [submitting, setSubmitting] = useState(false);
   const [appliedNonce, setAppliedNonce] = useState<number | null>(null);
   const [appliedRefNonce, setAppliedRefNonce] = useState<number | null>(null);
+  const [refNotice, setRefNotice] = useState<{ nonce: number; mode: "add" | "replace"; total: number; dropped: number } | null>(null);
   const [uploading, setUploading] = useState(false);
   const [dragging, setDragging] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -149,16 +152,35 @@ export function GeneratorForm({ engine, loadRequest, referenceRequest, onSubmit 
     setAdvancedOpen(true);
   }
 
-  // 갤러리에서 "참조 이미지로 사용"
+  // 갤러리에서 "참조 이미지로 추가" / "이 이미지 편집하기": 렌더 중에 파생 상태를 맞춘다.
   if (referenceRequest && referenceRequest.nonce !== appliedRefNonce) {
     setAppliedRefNonce(referenceRequest.nonce);
-    setFormOverride({
-      ...form,
-      references: [...form.references.filter((r) => r !== referenceRequest.id), referenceRequest.id].slice(
-        -MAX_REFERENCES,
-      ),
+    const incoming = referenceRequest.ids;
+    const merged =
+      referenceRequest.mode === "replace"
+        ? incoming
+        : [...form.references, ...incoming.filter((id) => !form.references.includes(id))];
+    const next = merged.slice(0, MAX_REFERENCES);
+    setFormOverride({ ...form, references: next });
+    setRefNotice({
+      nonce: referenceRequest.nonce,
+      mode: referenceRequest.mode,
+      total: next.length,
+      dropped: merged.length - next.length,
     });
   }
+
+  // 참조 이미지 반영 결과를 알린다 (외부 시스템인 토스트 호출이므로 effect 에 둔다)
+  useEffect(() => {
+    if (!refNotice) return;
+    if (refNotice.dropped > 0) {
+      toast.warning(`참조 이미지는 최대 ${MAX_REFERENCES}장입니다. ${refNotice.dropped}장은 추가하지 않았습니다.`);
+    } else if (refNotice.mode === "replace") {
+      toast("이 이미지를 참조로 편집합니다. 어떻게 바꿀지 프롬프트에 쓰고 생성을 시작하세요.");
+    } else {
+      toast(`참조 이미지 ${refNotice.total}/${MAX_REFERENCES}장. 프롬프트에서 "첫 번째", "두 번째"로 가리킬 수 있습니다.`);
+    }
+  }, [refNotice]);
 
   // 마지막 설정 저장 (사용자가 무언가 바꾼 뒤에만)
   useEffect(() => {

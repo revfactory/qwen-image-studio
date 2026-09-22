@@ -34,12 +34,17 @@ export default function Home() {
     toast("설정을 불러왔습니다. 필요한 값을 고친 뒤 생성을 시작하세요.");
   }, []);
 
-  const handleUseAsReference = useCallback(async (job: Job) => {
+  /** 갤러리 이미지를 참조 이미지로 넘긴다. add 는 현재 목록에 덧붙이고, replace 는 그 이미지로 바꾼다. */
+  const handleReferences = useCallback(async (jobs: Job[], mode: "add" | "replace") => {
+    if (jobs.length === 0) return;
     try {
-      const info = await api.uploadFromJob(job.id);
-      setReferenceRequest({ id: info.id, nonce: Date.now() });
+      const ids: string[] = [];
+      for (const job of jobs) {
+        const info = await api.uploadFromJob(job.id);
+        ids.push(info.id);
+      }
+      setReferenceRequest({ ids, mode, nonce: Date.now() });
       formRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
-      toast("참조 이미지로 추가했습니다. 어떻게 바꿀지 프롬프트에 쓰고 생성을 시작하세요.");
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "참조 이미지로 추가하지 못했습니다");
     }
@@ -76,7 +81,8 @@ export default function Home() {
               onDelete={(ids) => void deleteJobs(ids)}
               onLoadParams={handleLoadParams}
               onRegenerate={handleRegenerate}
-              onUseAsReference={(job) => void handleUseAsReference(job)}
+              onAddReferences={(jobs) => void handleReferences(jobs, "add")}
+              onEditImage={(job) => void handleReferences([job], "replace")}
             />
           </div>
         </div>

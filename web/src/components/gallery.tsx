@@ -5,6 +5,7 @@ import {
   CheckSquareIcon,
   DownloadIcon,
   ImageIcon,
+  ImagePlusIcon,
   MoreHorizontalIcon,
   PencilLineIcon,
   RefreshCwIcon,
@@ -42,6 +43,7 @@ import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ImageDialog } from "@/components/image-dialog";
 import { imageUrl } from "@/lib/client-api";
 import { truncate } from "@/lib/format";
+import { MAX_REFERENCES } from "@/lib/presets";
 import type { GenerationParams, Job } from "@/lib/types";
 
 type Filter = "all" | "done" | "failed";
@@ -52,10 +54,13 @@ interface Props {
   onDelete: (ids: string[]) => void;
   onLoadParams: (params: GenerationParams) => void;
   onRegenerate: (params: GenerationParams, keepSeed: boolean) => void;
-  onUseAsReference: (job: Job) => void;
+  /** 선택한 이미지들을 현재 참조 목록에 덧붙인다 */
+  onAddReferences: (jobs: Job[]) => void;
+  /** 이 이미지 한 장을 참조로 삼아 편집을 시작한다 */
+  onEditImage: (job: Job) => void;
 }
 
-export function Gallery({ jobs, loaded, onDelete, onLoadParams, onRegenerate, onUseAsReference }: Props) {
+export function Gallery({ jobs, loaded, onDelete, onLoadParams, onRegenerate, onAddReferences, onEditImage }: Props) {
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<Filter>("all");
   const [selectMode, setSelectMode] = useState(false);
@@ -99,6 +104,10 @@ export function Gallery({ jobs, loaded, onDelete, onLoadParams, onRegenerate, on
   };
 
   const failedCount = jobs.filter((j) => j.status !== "done").length;
+  const selectedDone = useMemo(
+    () => visible.filter((j) => j.status === "done" && selected.has(j.id)),
+    [visible, selected],
+  );
 
   return (
     <section className="flex flex-col gap-3">
@@ -139,6 +148,23 @@ export function Gallery({ jobs, loaded, onDelete, onLoadParams, onRegenerate, on
               >
                 {selected.size === visible.length ? <SquareIcon data-icon="inline-start" /> : <CheckSquareIcon data-icon="inline-start" />}
                 {selected.size === visible.length ? "선택 해제" : "전체 선택"}
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={selectedDone.length === 0 || selectedDone.length > MAX_REFERENCES}
+                title={
+                  selectedDone.length > MAX_REFERENCES
+                    ? `참조 이미지는 최대 ${MAX_REFERENCES}장까지 고를 수 있습니다`
+                    : "선택한 이미지를 생성 폼의 참조 이미지에 추가합니다"
+                }
+                onClick={() => {
+                  onAddReferences(selectedDone);
+                  exitSelectMode();
+                }}
+              >
+                <ImagePlusIcon data-icon="inline-start" />
+                {selectedDone.length > 0 ? `${selectedDone.length}장 ` : ""}참조로 추가
               </Button>
               <Button
                 variant="destructive"
@@ -287,7 +313,11 @@ export function Gallery({ jobs, loaded, onDelete, onLoadParams, onRegenerate, on
                         <MoreHorizontalIcon />
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="end">
-                        <DropdownMenuItem onClick={() => onUseAsReference(job)}>
+                        <DropdownMenuItem onClick={() => onAddReferences([job])}>
+                          <ImagePlusIcon />
+                          참조 이미지로 추가
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => onEditImage(job)}>
                           <PencilLineIcon />
                           이 이미지 편집하기
                         </DropdownMenuItem>
@@ -337,9 +367,10 @@ export function Gallery({ jobs, loaded, onDelete, onLoadParams, onRegenerate, on
           setOpenId(null);
           onRegenerate(params, keepSeed);
         }}
-        onUseAsReference={(job) => {
+        onAddReference={(job) => onAddReferences([job])}
+        onEditImage={(job) => {
           setOpenId(null);
-          onUseAsReference(job);
+          onEditImage(job);
         }}
       />
 

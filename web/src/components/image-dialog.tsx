@@ -5,6 +5,7 @@ import {
   ChevronRightIcon,
   CopyIcon,
   DownloadIcon,
+  ImagePlusIcon,
   PencilLineIcon,
   RefreshCwIcon,
   SlidersHorizontalIcon,
@@ -42,7 +43,8 @@ interface Props {
   onDelete: (id: string) => void;
   onLoadParams: (params: GenerationParams) => void;
   onRegenerate: (params: GenerationParams, keepSeed: boolean) => void;
-  onUseAsReference: (job: Job) => void;
+  onAddReference: (job: Job) => void;
+  onEditImage: (job: Job) => void;
 }
 
 async function copy(text: string, label: string) {
@@ -63,7 +65,8 @@ export function ImageDialog({
   onDelete,
   onLoadParams,
   onRegenerate,
-  onUseAsReference,
+  onAddReference,
+  onEditImage,
 }: Props) {
   const [confirmDelete, setConfirmDelete] = useState(false);
 
@@ -230,10 +233,17 @@ export function ImageDialog({
                   <Separator />
 
                   <div className="grid grid-cols-2 gap-2">
-                    <Button className="col-span-2" onClick={() => onUseAsReference(job)}>
+                    <Button onClick={() => onEditImage(job)}>
                       <PencilLineIcon data-icon="inline-start" />
                       이 이미지 편집하기
                     </Button>
+                    <Tooltip>
+                      <TooltipTrigger render={<Button variant="outline" onClick={() => onAddReference(job)} />}>
+                        <ImagePlusIcon data-icon="inline-start" />
+                        참조 이미지로 추가
+                      </TooltipTrigger>
+                      <TooltipContent>생성 폼의 참조 목록에 덧붙입니다 (최대 3장)</TooltipContent>
+                    </Tooltip>
                     <Button variant="outline" onClick={() => onLoadParams(p)}>
                       <SlidersHorizontalIcon data-icon="inline-start" />
                       설정 불러오기
