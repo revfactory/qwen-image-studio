@@ -105,6 +105,8 @@ export const CFG_MIN = 1;
 export const CFG_MAX = 10;
 export const MAX_BATCH = 8;
 export const MAX_REFERENCES = 3;
+/** 배치 편집(참조 한 장당 작업 하나)에서 한 번에 고를 수 있는 참조 이미지 수 */
+export const MAX_BATCH_REFERENCES = 8;
 export const MAX_UPLOAD_BYTES = 25 * 1024 * 1024;
 
 export const KNOWN_GGUF_FILES = ["qwen-image-2.1-Q8_0.gguf", "qwen-image-2.1-Q4_K_M.gguf"];

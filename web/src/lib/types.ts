@@ -32,6 +32,12 @@ export interface GenerationParams {
   references: string[];
   /** 참조 이미지가 있을 때 출력 크기를 첫 참조 이미지에 맞출지 (ComfyUI) */
   followReferenceSize: boolean;
+  /**
+   * 참조 이미지를 다루는 방식. combined: 모든 참조를 한 작업에 넣어 합성/편집한다 (최대 MAX_REFERENCES).
+   * each: 참조 한 장마다 같은 프롬프트를 적용한 작업을 따로 만든다 (배치 편집, 최대 MAX_BATCH_REFERENCES).
+   * 서버는 이 값을 저장하지 않고 요청의 perReference 로만 받는다.
+   */
+  referenceMode?: "combined" | "each";
   /** mflux img2img 변경 강도 (0~1). 1 에 가까울수록 원본에서 멀어진다 */
   imageStrength: number;
   presetId?: string;
@@ -101,5 +107,13 @@ export interface UploadInfo {
 
 export interface CreateJobsRequest {
   params: GenerationParams;
+  /** 작업 수. perReference 면 참조 이미지 한 장당 작업 수 */
   count?: number;
+  /** true 면 params.references 의 각 이미지마다 별도 작업을 만든다 (배치 편집) */
+  perReference?: boolean;
+}
+
+export interface UploadEntry extends UploadInfo {
+  /** 업로드 시각 (파일 수정 시각, ms) */
+  createdAt: number;
 }

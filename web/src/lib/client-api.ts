@@ -1,4 +1,4 @@
-import type { CreateJobsRequest, EngineStatus, Job, UploadInfo } from "@/lib/types";
+import type { CreateJobsRequest, EngineStatus, Job, UploadEntry, UploadInfo } from "@/lib/types";
 
 async function request<T>(url: string, init?: RequestInit): Promise<T> {
   const res = await fetch(url, {
@@ -22,6 +22,7 @@ export const api = {
   deleteJobs: (ids: string[]) =>
     request<{ deleted: string[] }>("/api/jobs", { method: "DELETE", body: JSON.stringify({ ids }) }),
   status: () => request<EngineStatus>("/api/status"),
+  listUploads: () => request<{ uploads: UploadEntry[] }>("/api/uploads"),
   upload: async (file: File): Promise<UploadInfo> => {
     const body = new FormData();
     body.append("file", file);

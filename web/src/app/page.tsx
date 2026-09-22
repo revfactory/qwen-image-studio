@@ -18,9 +18,9 @@ export default function Home() {
   const formRef = useRef<HTMLDivElement>(null);
 
   const handleSubmit = useCallback(
-    async (params: GenerationParams, count: number) => {
+    async (params: GenerationParams, count: number, perReference = false) => {
       try {
-        await createJobs(params, count);
+        await createJobs(params, count, perReference);
       } catch (err) {
         toast.error(err instanceof Error ? err.message : "작업을 추가하지 못했습니다");
       }

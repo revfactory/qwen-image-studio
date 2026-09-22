@@ -119,9 +119,16 @@ export function useJobs() {
   );
   const finished = useMemo(() => jobs.filter((j) => j.status !== "running" && j.status !== "queued"), [jobs]);
 
-  const createJobs = useCallback(async (params: GenerationParams, count = 1) => {
-    const res = await api.createJobs({ params, count });
-    toast.info(count > 1 ? `${count}개 작업을 대기열에 추가했습니다` : "작업을 대기열에 추가했습니다");
+  const createJobs = useCallback(async (params: GenerationParams, count = 1, perReference = false) => {
+    const res = await api.createJobs({ params, count, perReference });
+    const n = res.jobs.length;
+    toast.info(
+      perReference
+        ? `참조 이미지 ${params.references.length}장에 프롬프트를 각각 적용하는 ${n}개 작업을 대기열에 추가했습니다`
+        : n > 1
+          ? `${n}개 작업을 대기열에 추가했습니다`
+          : "작업을 대기열에 추가했습니다",
+    );
     return res.jobs;
   }, []);
 

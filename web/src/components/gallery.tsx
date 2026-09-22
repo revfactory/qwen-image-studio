@@ -43,7 +43,7 @@ import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ImageDialog } from "@/components/image-dialog";
 import { imageUrl } from "@/lib/client-api";
 import { truncate } from "@/lib/format";
-import { MAX_REFERENCES } from "@/lib/presets";
+import { MAX_BATCH_REFERENCES, MAX_REFERENCES } from "@/lib/presets";
 import type { GenerationParams, Job } from "@/lib/types";
 
 type Filter = "all" | "done" | "failed";
@@ -152,11 +152,13 @@ export function Gallery({ jobs, loaded, onDelete, onLoadParams, onRegenerate, on
               <Button
                 variant="outline"
                 size="sm"
-                disabled={selectedDone.length === 0 || selectedDone.length > MAX_REFERENCES}
+                disabled={selectedDone.length === 0 || selectedDone.length > MAX_BATCH_REFERENCES}
                 title={
-                  selectedDone.length > MAX_REFERENCES
-                    ? `참조 이미지는 최대 ${MAX_REFERENCES}장까지 고를 수 있습니다`
-                    : "선택한 이미지를 생성 폼의 참조 이미지에 추가합니다"
+                  selectedDone.length > MAX_BATCH_REFERENCES
+                    ? `참조 이미지는 최대 ${MAX_BATCH_REFERENCES}장까지 고를 수 있습니다`
+                    : selectedDone.length > MAX_REFERENCES
+                      ? `${MAX_REFERENCES}장을 넘으면 각 이미지에 프롬프트를 따로 적용하는 배치 편집으로 추가됩니다`
+                      : "선택한 이미지를 생성 폼의 참조 이미지에 추가합니다"
                 }
                 onClick={() => {
                   onAddReferences(selectedDone);

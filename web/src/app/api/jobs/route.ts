@@ -8,6 +8,7 @@ import {
   isGgufTextEncoder,
   KNOWN_TEXT_ENCODERS,
   MAX_BATCH,
+  MAX_BATCH_REFERENCES,
   MAX_REFERENCES,
   round32,
   STEPS_MAX,
@@ -30,7 +31,7 @@ function clamp(n: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, n));
 }
 
-function normalize(input: Partial<GenerationParams>): GenerationParams {
+function normalize(input: Partial<GenerationParams>, maxReferences = MAX_REFERENCES): GenerationParams {
   const p = { ...DEFAULT_PARAMS, ...input };
   const prompt = String(p.prompt ?? "").trim();
   if (!prompt) throw new Error("프롬프트를 입력하세요.");
@@ -42,7 +43,7 @@ function normalize(input: Partial<GenerationParams>): GenerationParams {
   const quantize = p.quantize === null ? null : clamp(Math.round(Number(p.quantize) || 8), 3, 8);
   const references = (Array.isArray(p.references) ? p.references : [])
     .filter((r): r is string => typeof r === "string" && uploadExists(r))
-    .slice(0, MAX_REFERENCES);
+    .slice(0, maxReferences);
   let textEncoder = String(p.textEncoder || DEFAULT_PARAMS.textEncoder);
   if (engine === "comfyui" && references.length > 0 && isGgufTextEncoder(textEncoder) && !GGUF_TEXT_ENCODER_SUPPORTS_EDIT) {
     // GGUF 인코더로는 참조 이미지를 읽을 수 없을 때 safetensors 인코더로 처리한다.
@@ -82,27 +83,38 @@ export async function POST(req: Request) {
   } catch {
     return NextResponse.json({ error: "요청 본문이 JSON 이 아닙니다." }, { status: 400 });
   }
-  let params: GenerationParams;
+  const count = clamp(Math.round(Number(body.count) || 1), 1, MAX_BATCH);
+
+  // 작업별 파라미터 목록. 배치 편집이면 참조 한 장마다 하나, 아니면 하나.
+  let variants: GenerationParams[];
   try {
-    params = normalize(body.params ?? {});
+    if (body.perReference) {
+      const batch = normalize(body.params ?? {}, MAX_BATCH_REFERENCES);
+      if (batch.references.length === 0) throw new Error("배치 편집에는 참조 이미지가 필요합니다.");
+      variants = batch.references.map((id) => ({ ...batch, references: [id] }));
+    } else {
+      variants = [normalize(body.params ?? {})];
+    }
   } catch (err) {
     return NextResponse.json({ error: err instanceof Error ? err.message : String(err) }, { status: 400 });
   }
-  const count = clamp(Math.round(Number(body.count) || 1), 1, MAX_BATCH);
 
   const jobs: Job[] = [];
   const base = Date.now();
-  for (let i = 0; i < count; i++) {
-    const seed = params.seed === null ? randomSeed() : (params.seed + i) % 2_147_483_647;
-    const job: Job = {
-      id: randomUUID(),
-      createdAt: base + i,
-      status: "queued",
-      params: { ...params, seed },
-      progress: { step: 0, total: params.steps, phase: "queued" },
-    };
-    store.upsert(job);
-    jobs.push(job);
+  let i = 0;
+  for (const params of variants) {
+    for (let k = 0; k < count; k++, i++) {
+      const seed = params.seed === null ? randomSeed() : (params.seed + i) % 2_147_483_647;
+      const job: Job = {
+        id: randomUUID(),
+        createdAt: base + i,
+        status: "queued",
+        params: { ...params, seed },
+        progress: { step: 0, total: params.steps, phase: "queued" },
+      };
+      store.upsert(job);
+      jobs.push(job);
+    }
   }
   worker.kick();
   void publishEngineStatus();
