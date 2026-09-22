@@ -178,6 +178,7 @@ Next.js 16 + shadcn/ui(Base UI) 로 만들었고 `web/` 폴더에 있습니다.
 ./run-web.sh          # http://127.0.0.1:3210 (프로덕션 모드, 첫 실행 시 자동 빌드)
 ./run-web.sh dev      # 개발 모드
 ./run-web.sh build    # 코드를 고친 뒤 다시 빌드
+./reset-data.sh       # 작업 기록·생성 이미지·참조 이미지를 모두 삭제 (확인 후 실행, --yes 로 생략)
 ```
 
 ComfyUI 서버가 꺼져 있으면 첫 생성 요청 때 `run-comfyui.sh` 를 자동으로 실행합니다(준비까지 1분 안팎).
