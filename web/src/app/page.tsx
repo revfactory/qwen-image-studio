@@ -70,6 +70,7 @@ export default function Home() {
               engine={engine}
               loadRequest={loadRequest}
               referenceRequest={referenceRequest}
+              finishedJobs={finished}
               onSubmit={handleSubmit}
             />
           </div>

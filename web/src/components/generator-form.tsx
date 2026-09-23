@@ -60,7 +60,7 @@ import {
   STYLE_PRESETS,
   textEncoderLabel,
 } from "@/lib/presets";
-import type { Engine, EngineStatus, GenerationParams } from "@/lib/types";
+import type { Engine, EngineStatus, GenerationParams, Job } from "@/lib/types";
 
 const STORAGE_KEY = "qwen21.form.v1";
 
@@ -81,6 +81,8 @@ interface Props {
   engine: EngineStatus | null;
   loadRequest: LoadRequest | null;
   referenceRequest: ReferenceRequest | null;
+  /** 끝난 작업 목록. 배치 편집 중 처리가 끝난 참조 이미지를 폼에서 빼는 데 쓴다 */
+  finishedJobs: Job[];
   /** perReference 가 true 면 참조 이미지 한 장마다 같은 프롬프트를 적용한 작업을 따로 만든다 */
   onSubmit: (params: GenerationParams, count: number, perReference?: boolean) => Promise<unknown>;
 }
@@ -124,7 +126,7 @@ function parseSaved(raw: string | null): Saved | null {
   }
 }
 
-export function GeneratorForm({ engine, loadRequest, referenceRequest, onSubmit }: Props) {
+export function GeneratorForm({ engine, loadRequest, referenceRequest, finishedJobs, onSubmit }: Props) {
   // 서버 렌더링에서는 기본값, 브라우저에서는 마지막에 저장한 설정으로 시작한다.
   const savedRaw = useSyncExternalStore(noopSubscribe, readSavedRaw, () => null);
   const saved = useMemo(() => parseSaved(savedRaw), [savedRaw]);
@@ -146,6 +148,8 @@ export function GeneratorForm({ engine, loadRequest, referenceRequest, onSubmit 
   /** 삭제하려고 선택한 참조 이미지 ID (폼 저장 대상이 아니므로 폼과 분리) */
   const [selectedRefs, setSelectedRefs] = useState<Set<string>>(new Set());
   const [libraryOpen, setLibraryOpen] = useState(false);
+  /** 배치 편집을 시작한 시각. 이 뒤에 끝난 작업의 참조는 폼에서 뺀다 */
+  const [batchStartedAt, setBatchStartedAt] = useState<number | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const form = useMemo<GenerationParams>(
@@ -186,6 +190,20 @@ export function GeneratorForm({ engine, loadRequest, referenceRequest, onSubmit 
       dropped: merged.length - next.length,
       batch: referenceMode === "each" && next.length > 1,
     });
+  }
+
+  // 배치 편집 중: 처리가 끝난 참조 이미지는 폼에서 뺀다 (렌더 중에 파생 상태를 맞춘다).
+  if (batchStartedAt !== null) {
+    const processed = new Set<string>();
+    for (const job of finishedJobs) {
+      if (job.createdAt >= batchStartedAt && job.params.references.length === 1) processed.add(job.params.references[0]);
+    }
+    const remaining = form.references.filter((id) => !processed.has(id));
+    if (remaining.length !== form.references.length) {
+      setFormOverride({ ...form, references: remaining });
+      setSelectedRefs((s) => (s.size ? new Set([...s].filter((id) => !processed.has(id))) : s));
+      if (remaining.length === 0) setBatchStartedAt(null);
+    }
   }
 
   // 참조 이미지 반영 결과를 알린다 (외부 시스템인 토스트 호출이므로 effect 에 둔다)
@@ -295,6 +313,7 @@ export function GeneratorForm({ engine, loadRequest, referenceRequest, onSubmit 
     if (n === 0) return;
     patchFn(() => ({ references: [] }));
     setSelectedRefs(new Set());
+    setBatchStartedAt(null);
     toast(`참조 이미지 ${n}장을 모두 제거했습니다.`);
   };
   const editing = form.references.length > 0;
@@ -354,6 +373,8 @@ export function GeneratorForm({ engine, loadRequest, referenceRequest, onSubmit 
         count,
         batchEach,
       );
+      // 배치 편집이면 이후 끝나는 작업의 참조를 폼에서 걷어낸다. 시계 오차를 감안해 조금 앞선 시각을 기준으로 삼는다.
+      setBatchStartedAt(batchEach ? Date.now() - 5_000 : null);
     } finally {
       setSubmitting(false);
     }
