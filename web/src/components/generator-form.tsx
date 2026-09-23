@@ -151,6 +151,8 @@ export function GeneratorForm({ engine, loadRequest, referenceRequest, finishedJ
   /** 배치 편집을 시작한 시각. 이 뒤에 끝난 작업의 참조는 폼에서 뺀다 */
   const [batchStartedAt, setBatchStartedAt] = useState<number | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const thumbsRef = useRef<HTMLDivElement>(null);
+  const prevRefCount = useRef(0);
 
   const form = useMemo<GenerationParams>(
     () => formOverride ?? { ...DEFAULT_PARAMS, ...(saved?.form ?? {}) },
@@ -219,6 +221,16 @@ export function GeneratorForm({ engine, loadRequest, referenceRequest, finishedJ
       toast(`참조 이미지 ${refNotice.total}/${MAX_REFERENCES}장. 프롬프트에서 "첫 번째", "두 번째"로 가리킬 수 있습니다.`);
     }
   }, [refNotice]);
+
+  // 참조 이미지가 늘어나면 가장 최근에 넣은 썸네일이 보이도록 스크롤한다 (썸네일 칸은 높이가 제한된다)
+  useEffect(() => {
+    const count = form.references.length;
+    if (count > prevRefCount.current && thumbsRef.current) {
+      const el = thumbsRef.current;
+      el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
+    }
+    prevRefCount.current = count;
+  }, [form.references.length]);
 
   // 마지막 설정 저장 (사용자가 무언가 바꾼 뒤에만)
   useEffect(() => {
@@ -524,7 +536,7 @@ export function GeneratorForm({ engine, loadRequest, referenceRequest, finishedJ
                 편집도 할 수 있습니다 (최대 {MAX_BATCH_REFERENCES}장).
               </p>
             ) : (
-              <div className="flex max-h-64 flex-wrap gap-2 overflow-y-auto">
+              <div ref={thumbsRef} className="flex max-h-64 flex-wrap gap-2 overflow-y-auto">
                 {form.references.map((id, i) => {
                   const isSelected = selectedRefs.has(id);
                   return (
