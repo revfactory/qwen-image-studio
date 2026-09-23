@@ -15,12 +15,17 @@ cd "$(dirname "$0")/web"
 export PORT="${PORT:-3210}"
 MODE="${1:-start}"
 
+# npm 을 거치지 않고 next 를 직접 실행한다. npm 래퍼가 끼면 Ctrl+C 신호가 제대로 전달되지 않거나
+# next-server 가 끝난 뒤에도 npm 프로세스가 남을 수 있다.
+NEXT="./node_modules/.bin/next"
+[[ -x "$NEXT" ]] || { echo "web/node_modules 가 없습니다. 먼저 ./setup-comfyui.sh 또는 (cd web && npm install) 을 실행하세요."; exit 1; }
+
 case "$MODE" in
-  dev)   exec npm run dev -- --port "$PORT" ;;
-  build) exec npm run build ;;
+  dev)   exec "$NEXT" dev --port "$PORT" ;;
+  build) exec "$NEXT" build ;;
   start)
-    [[ -d .next ]] || npm run build
-    exec npm run start -- --port "$PORT"
+    [[ -f .next/BUILD_ID ]] || "$NEXT" build
+    exec "$NEXT" start --port "$PORT"
     ;;
   *) echo "알 수 없는 모드: $MODE (dev | build | start)"; exit 1 ;;
 esac

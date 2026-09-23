@@ -17,3 +17,6 @@ __pycache__/
 # 웹 앱 빌드 산출물 (web/.gitignore 에도 있음)
 /web/node_modules/
 /web/.next/
+
+# 백그라운드 서버 PID
+/web/.web.pid

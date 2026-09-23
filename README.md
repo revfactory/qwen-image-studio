@@ -181,6 +181,15 @@ Next.js 16 + shadcn/ui(Base UI) 로 만들었고 `web/` 폴더에 있습니다.
 ./reset-data.sh       # 작업 기록·생성 이미지·참조 이미지를 모두 삭제 (확인 후 실행, --yes 로 생략)
 ```
 
+터미널을 붙잡지 않고 백그라운드로 돌리려면 `run-web-background.sh` 를 씁니다. 로그는 `web.log` 에 남습니다.
+
+```bash
+./run-web-background.sh                  # 백그라운드로 시작
+./run-web-background.sh --status         # 실행 상태
+./run-web-background.sh --stop           # 정지
+./run-web-background.sh --stop --delete  # 데이터를 모두 지운 뒤 정지
+```
+
 ComfyUI 서버가 꺼져 있으면 첫 생성 요청 때 `run-comfyui.sh` 를 자동으로 실행합니다(준비까지 1분 안팎).
 헤더의 배지에서 ComfyUI·mflux 상태와 실시간 연결 상태를 확인할 수 있습니다.
 웹 앱이 자동으로 켠 ComfyUI 는 웹 앱을 종료해도 백그라운드에 남습니다. 끄려면 `pkill -f "ComfyUI/main.py"` 를 실행하세요.

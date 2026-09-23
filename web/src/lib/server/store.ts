@@ -62,6 +62,15 @@ class JobStore {
     }
   }
 
+  /** 예약된 저장을 기다리지 않고 지금 디스크에 쓴다 (서버 종료 시). */
+  flush(): void {
+    if (this.saveTimer) {
+      clearTimeout(this.saveTimer);
+      this.saveTimer = null;
+    }
+    this.save();
+  }
+
   private scheduleSave(): void {
     if (this.saveTimer) return;
     this.saveTimer = setTimeout(() => {

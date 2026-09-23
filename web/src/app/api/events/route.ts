@@ -1,5 +1,5 @@
 import type { ServerEvent } from "@/lib/types";
-import { subscribe } from "@/lib/server/events";
+import { onShutdown, subscribe } from "@/lib/server/events";
 import { engineStatus } from "@/lib/server/queue";
 import { store } from "@/lib/server/store";
 
@@ -10,6 +10,7 @@ export async function GET(req: Request) {
   const encoder = new TextEncoder();
   let closed = false;
   let unsubscribe: (() => void) | undefined;
+  let offShutdown: (() => void) | undefined;
   let ping: NodeJS.Timeout | undefined;
 
   const stream = new ReadableStream<Uint8Array>({
@@ -35,6 +36,7 @@ export async function GET(req: Request) {
         if (closed) return;
         closed = true;
         unsubscribe?.();
+        offShutdown?.();
         if (ping) clearInterval(ping);
         try {
           controller.close();
@@ -43,10 +45,13 @@ export async function GET(req: Request) {
         }
       };
       req.signal.addEventListener("abort", close);
+      // 서버가 내려갈 때 연결을 끊어 종료가 막히지 않게 한다. 브라우저는 EventSource 로 다시 붙는다.
+      offShutdown = onShutdown(close);
     },
     cancel() {
       closed = true;
       unsubscribe?.();
+      offShutdown?.();
       if (ping) clearInterval(ping);
     },
   });
