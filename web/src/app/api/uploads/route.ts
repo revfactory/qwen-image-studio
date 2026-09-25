@@ -1,11 +1,16 @@
 import { NextResponse } from "next/server";
 import { MAX_UPLOAD_BYTES } from "@/lib/presets";
-import { saveUpload } from "@/lib/server/uploads";
+import { listUploads, saveUpload } from "@/lib/server/uploads";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 const ALLOWED = new Set(["image/png", "image/jpeg", "image/webp", "image/gif", "image/avif", "image/heic", "image/heif"]);
+
+/** 업로드한 참조 이미지 목록 (보관함) */
+export async function GET() {
+  return NextResponse.json({ uploads: listUploads() });
+}
 
 export async function POST(req: Request) {
   let form: FormData;

@@ -28,10 +28,12 @@ export function useJobs() {
     let source: EventSource | null = null;
     let retry: number | undefined;
     let stopped = false;
+    let hasSnapshot = false;
 
     const handle = (event: ServerEvent) => {
       switch (event.type) {
         case "snapshot": {
+          hasSnapshot = true;
           for (const j of event.jobs) prevStatus.current[j.id] = j.status;
           setState((s) => ({
             ...s,
@@ -80,6 +82,17 @@ export function useJobs() {
       }
     };
 
+    // Load the persisted job list over HTTP as well as SSE. On a cold Next.js
+    // start this lets the gallery populate without waiting for the event route
+    // to finish compiling and opening its long-lived stream.
+    void api.listJobs().then(({ jobs }) => {
+      if (stopped || hasSnapshot) return;
+      for (const job of jobs) prevStatus.current[job.id] = job.status;
+      setState((s) => (s.loaded ? s : { ...s, jobs: Object.fromEntries(jobs.map((job) => [job.id, job])), loaded: true }));
+    }).catch((err) => {
+      console.error("작업 목록을 불러오지 못했습니다", err);
+    });
+
     const connect = () => {
       if (stopped) return;
       source = new EventSource("/api/events");
@@ -119,9 +132,16 @@ export function useJobs() {
   );
   const finished = useMemo(() => jobs.filter((j) => j.status !== "running" && j.status !== "queued"), [jobs]);
 
-  const createJobs = useCallback(async (params: GenerationParams, count = 1) => {
-    const res = await api.createJobs({ params, count });
-    toast.info(count > 1 ? `${count}개 작업을 대기열에 추가했습니다` : "작업을 대기열에 추가했습니다");
+  const createJobs = useCallback(async (params: GenerationParams, count = 1, perReference = false) => {
+    const res = await api.createJobs({ params, count, perReference });
+    const n = res.jobs.length;
+    toast.info(
+      perReference
+        ? `참조 이미지 ${params.references.length}장에 프롬프트를 각각 적용하는 ${n}개 작업을 대기열에 추가했습니다`
+        : n > 1
+          ? `${n}개 작업을 대기열에 추가했습니다`
+          : "작업을 대기열에 추가했습니다",
+    );
     return res.jobs;
   }, []);
 

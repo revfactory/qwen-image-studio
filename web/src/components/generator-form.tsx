@@ -3,13 +3,16 @@
 import { cn } from "cn";
 import {
   ArrowLeftRightIcon,
+  BookmarkPlusIcon,
   ChevronDownIcon,
   DicesIcon,
   EraserIcon,
   ImagePlusIcon,
+  ImagesIcon,
   LightbulbIcon,
   Loader2Icon,
   SparklesIcon,
+  Trash2Icon,
   XIcon,
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
@@ -18,6 +21,7 @@ import { api, uploadUrl } from "@/lib/client-api";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -28,6 +32,7 @@ import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { UploadLibrary } from "@/components/upload-library";
 import {
   ASPECT_RATIOS,
   CFG_MAX,
@@ -55,9 +60,54 @@ import {
   STYLE_PRESETS,
   textEncoderLabel,
 } from "@/lib/presets";
-import type { Engine, EngineStatus, GenerationParams } from "@/lib/types";
+import type { Engine, EngineStatus, GenerationParams, Job } from "@/lib/types";
 
 const STORAGE_KEY = "qwen21.form.v1";
+const PROMPT_PRESETS_KEY = "qwen21.prompt-presets.v1";
+
+interface PromptPreset {
+  id: string;
+  name: string;
+  prompt: string;
+}
+
+const EMPTY_PROMPT_PRESETS: PromptPreset[] = [];
+const promptPresetSubscribers = new Set<() => void>();
+let promptPresetSnapshotRaw: string | null | undefined;
+let promptPresetSnapshot: PromptPreset[] = EMPTY_PROMPT_PRESETS;
+
+function readPromptPresets(): PromptPreset[] {
+  try {
+    const raw = window.localStorage.getItem(PROMPT_PRESETS_KEY);
+    if (raw === promptPresetSnapshotRaw) return promptPresetSnapshot;
+    promptPresetSnapshotRaw = raw;
+    const parsed: unknown = raw ? JSON.parse(raw) : [];
+    promptPresetSnapshot = Array.isArray(parsed) ? parsed as PromptPreset[] : EMPTY_PROMPT_PRESETS;
+  } catch {
+    promptPresetSnapshotRaw = null;
+    promptPresetSnapshot = EMPTY_PROMPT_PRESETS;
+  }
+  return promptPresetSnapshot;
+}
+
+function subscribePromptPresets(callback: () => void) {
+  promptPresetSubscribers.add(callback);
+  const onStorage = (event: StorageEvent) => {
+    if (event.key === PROMPT_PRESETS_KEY) callback();
+  };
+  window.addEventListener("storage", onStorage);
+  return () => {
+    promptPresetSubscribers.delete(callback);
+    window.removeEventListener("storage", onStorage);
+  };
+}
+
+function writePromptPresets(presets: PromptPreset[]) {
+  window.localStorage.setItem(PROMPT_PRESETS_KEY, JSON.stringify(presets));
+  promptPresetSnapshotRaw = undefined;
+  readPromptPresets();
+  promptPresetSubscribers.forEach((callback) => callback());
+}
 
 export interface LoadRequest {
   params: GenerationParams;
@@ -67,7 +117,7 @@ export interface LoadRequest {
 export interface ReferenceRequest {
   /** 업로드 ID 목록 */
   ids: string[];
-  /** add: 현재 목록 뒤에 덧붙인다 (최대 장수 초과분은 버림). replace: 이 이미지들로 교체한다 */
+  /** add: 현재 목록 뒤에 덧붙인다. replace: 이 이미지들로 교체한다 */
   mode: "add" | "replace";
   nonce: number;
 }
@@ -76,7 +126,10 @@ interface Props {
   engine: EngineStatus | null;
   loadRequest: LoadRequest | null;
   referenceRequest: ReferenceRequest | null;
-  onSubmit: (params: GenerationParams, count: number) => Promise<unknown>;
+  /** 끝난 작업 목록. 배치 편집 중 처리가 끝난 참조 이미지를 폼에서 빼는 데 쓴다 */
+  finishedJobs: Job[];
+  /** perReference 가 true 면 참조 이미지 한 장마다 같은 프롬프트를 적용한 작업을 따로 만든다 */
+  onSubmit: (params: GenerationParams, count: number, perReference?: boolean) => Promise<unknown>;
 }
 
 const ENGINE_ITEMS: { value: Engine; label: string }[] = [
@@ -112,13 +165,25 @@ interface Saved {
 function parseSaved(raw: string | null): Saved | null {
   if (!raw) return null;
   try {
-    return JSON.parse(raw) as Saved;
+    const saved = JSON.parse(raw) as Saved;
+    const form = saved.form;
+    // Upgrade the former untouched defaults while preserving any other saved settings.
+    if (
+      form?.presetId === "standard" &&
+      form.ratioId === "1:1" &&
+      form.width === 1024 &&
+      form.height === 1024 &&
+      form.steps === 40
+    ) {
+      saved.form = { ...form, presetId: "draft", ratioId: "3:4", width: 576, height: 768, steps: 20 };
+    }
+    return saved;
   } catch {
     return null;
   }
 }
 
-export function GeneratorForm({ engine, loadRequest, referenceRequest, onSubmit }: Props) {
+export function GeneratorForm({ engine, loadRequest, referenceRequest, finishedJobs, onSubmit }: Props) {
   // 서버 렌더링에서는 기본값, 브라우저에서는 마지막에 저장한 설정으로 시작한다.
   const savedRaw = useSyncExternalStore(noopSubscribe, readSavedRaw, () => null);
   const saved = useMemo(() => parseSaved(savedRaw), [savedRaw]);
@@ -128,10 +193,25 @@ export function GeneratorForm({ engine, loadRequest, referenceRequest, onSubmit 
   const [submitting, setSubmitting] = useState(false);
   const [appliedNonce, setAppliedNonce] = useState<number | null>(null);
   const [appliedRefNonce, setAppliedRefNonce] = useState<number | null>(null);
-  const [refNotice, setRefNotice] = useState<{ nonce: number; mode: "add" | "replace"; total: number; dropped: number } | null>(null);
+  const [refNotice, setRefNotice] = useState<{
+    nonce: number;
+    mode: "add" | "replace";
+    total: number;
+    dropped: number;
+    batch: boolean;
+  } | null>(null);
   const [uploading, setUploading] = useState(false);
   const [dragging, setDragging] = useState(false);
+  /** 삭제하려고 선택한 참조 이미지 ID (폼 저장 대상이 아니므로 폼과 분리) */
+  const [selectedRefs, setSelectedRefs] = useState<Set<string>>(new Set());
+  const [libraryOpen, setLibraryOpen] = useState(false);
+  const promptPresets = useSyncExternalStore(subscribePromptPresets, readPromptPresets, () => EMPTY_PROMPT_PRESETS);
+  const [selectedPromptPresetId, setSelectedPromptPresetId] = useState("");
+  /** 배치 편집을 시작한 시각. 이 뒤에 끝난 작업의 참조는 폼에서 뺀다 */
+  const [batchStartedAt, setBatchStartedAt] = useState<number | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const thumbsRef = useRef<HTMLDivElement>(null);
+  const prevRefCount = useRef(0);
 
   const form = useMemo<GenerationParams>(
     () => formOverride ?? { ...DEFAULT_PARAMS, ...(saved?.form ?? {}) },
@@ -160,27 +240,54 @@ export function GeneratorForm({ engine, loadRequest, referenceRequest, onSubmit 
       referenceRequest.mode === "replace"
         ? incoming
         : [...form.references, ...incoming.filter((id) => !form.references.includes(id))];
-    const next = merged.slice(0, MAX_REFERENCES);
-    setFormOverride({ ...form, references: next });
+    const next = merged;
+    // 합성 상한을 넘게 담기면 각 이미지에 따로 적용하는 배치 편집으로 바꾼다.
+    const referenceMode = next.length > MAX_REFERENCES ? "each" : form.referenceMode;
+    setFormOverride({ ...form, references: next, referenceMode });
     setRefNotice({
       nonce: referenceRequest.nonce,
       mode: referenceRequest.mode,
       total: next.length,
-      dropped: merged.length - next.length,
+      dropped: 0,
+      batch: referenceMode === "each" && next.length > 1,
     });
+  }
+
+  // 배치 편집 중: 처리가 끝난 참조 이미지는 폼에서 뺀다 (렌더 중에 파생 상태를 맞춘다).
+  if (batchStartedAt !== null) {
+    const processed = new Set<string>();
+    for (const job of finishedJobs) {
+      if (job.createdAt >= batchStartedAt && job.params.references.length === 1) processed.add(job.params.references[0]);
+    }
+    const remaining = form.references.filter((id) => !processed.has(id));
+    if (remaining.length !== form.references.length) {
+      setFormOverride({ ...form, references: remaining });
+      setSelectedRefs((s) => (s.size ? new Set([...s].filter((id) => !processed.has(id))) : s));
+      if (remaining.length === 0) setBatchStartedAt(null);
+    }
   }
 
   // 참조 이미지 반영 결과를 알린다 (외부 시스템인 토스트 호출이므로 effect 에 둔다)
   useEffect(() => {
     if (!refNotice) return;
-    if (refNotice.dropped > 0) {
-      toast.warning(`참조 이미지는 최대 ${MAX_REFERENCES}장입니다. ${refNotice.dropped}장은 추가하지 않았습니다.`);
+    if (refNotice.batch) {
+      toast(`참조 이미지 ${refNotice.total}장. 각 이미지에 프롬프트를 따로 적용하는 배치 편집으로 생성합니다.`);
     } else if (refNotice.mode === "replace") {
       toast("이 이미지를 참조로 편집합니다. 어떻게 바꿀지 프롬프트에 쓰고 생성을 시작하세요.");
     } else {
       toast(`참조 이미지 ${refNotice.total}/${MAX_REFERENCES}장. 프롬프트에서 "첫 번째", "두 번째"로 가리킬 수 있습니다.`);
     }
   }, [refNotice]);
+
+  // 참조 이미지가 늘어나면 가장 최근에 넣은 썸네일이 보이도록 스크롤한다 (썸네일 칸은 높이가 제한된다)
+  useEffect(() => {
+    const count = form.references.length;
+    if (count > prevRefCount.current && thumbsRef.current) {
+      const el = thumbsRef.current;
+      el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
+    }
+    prevRefCount.current = count;
+  }, [form.references.length]);
 
   // 마지막 설정 저장 (사용자가 무언가 바꾼 뒤에만)
   useEffect(() => {
@@ -202,23 +309,33 @@ export function GeneratorForm({ engine, loadRequest, referenceRequest, onSubmit 
       return { ...base, ...fn(base) };
     });
 
+  const referenceMode = form.referenceMode ?? "combined";
+  /** 참조 한 장마다 작업을 따로 만드는 배치 편집인지 */
+  const batchEach = referenceMode === "each" && form.references.length > 1;
+
+  /** 참조 ID 들을 덧붙인다. 합성 상한을 넘으면 배치 편집으로 바꾼다. */
+  const addReferences = (ids: string[]) => {
+    patchFn((f) => {
+      const merged = [...f.references, ...ids.filter((id) => !f.references.includes(id))];
+      const nextMode = merged.length > MAX_REFERENCES ? "each" : f.referenceMode;
+      if (nextMode === "each" && f.referenceMode !== "each") {
+        toast(`참조 이미지 ${merged.length}장. 각 이미지에 프롬프트를 따로 적용하는 배치 편집으로 생성합니다.`);
+      }
+      return { references: merged, referenceMode: nextMode };
+    });
+  };
+
   const handleFiles = async (files: FileList | null) => {
     if (!files || files.length === 0) return;
-    const room = MAX_REFERENCES - form.references.length;
-    if (room <= 0) {
-      toast.error(`참조 이미지는 최대 ${MAX_REFERENCES}장까지 넣을 수 있습니다`);
-      return;
-    }
     const list = Array.from(files)
-      .filter((f) => f.type.startsWith("image/"))
-      .slice(0, room);
+      .filter((f) => f.type.startsWith("image/"));
     if (list.length === 0) return;
     setUploading(true);
     try {
       for (const file of list) {
         try {
           const info = await api.upload(file);
-          patchFn((f) => ({ references: [...f.references, info.id].slice(0, MAX_REFERENCES) }));
+          addReferences([info.id]);
         } catch (err) {
           toast.error(`${file.name}: ${err instanceof Error ? err.message : "업로드 실패"}`);
         }
@@ -229,13 +346,45 @@ export function GeneratorForm({ engine, loadRequest, referenceRequest, onSubmit 
     }
   };
 
-  const removeReference = (id: string) => patchFn((f) => ({ references: f.references.filter((r) => r !== id) }));
+  const removeReference = (id: string) => {
+    patchFn((f) => ({ references: f.references.filter((r) => r !== id) }));
+    setSelectedRefs((s) => {
+      if (!s.has(id)) return s;
+      const next = new Set(s);
+      next.delete(id);
+      return next;
+    });
+  };
+  const toggleSelectedRef = (id: string) =>
+    setSelectedRefs((s) => {
+      const next = new Set(s);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  // 폼에서 이미 빠진 ID 가 선택에 남지 않게 현재 목록과 교집합만 취한다.
+  const selectedRefIds = form.references.filter((id) => selectedRefs.has(id));
+  const removeSelectedReferences = () => {
+    if (selectedRefIds.length === 0) return;
+    const drop = new Set(selectedRefIds);
+    patchFn((f) => ({ references: f.references.filter((r) => !drop.has(r)) }));
+    setSelectedRefs(new Set());
+    toast(`참조 이미지 ${drop.size}장을 제거했습니다.`);
+  };
+  const removeAllReferences = () => {
+    const n = form.references.length;
+    if (n === 0) return;
+    patchFn(() => ({ references: [] }));
+    setSelectedRefs(new Set());
+    setBatchStartedAt(null);
+    toast(`참조 이미지 ${n}장을 모두 제거했습니다.`);
+  };
   const editing = form.references.length > 0;
 
   const applyQuality = (id: string) => {
     const preset = QUALITY_PRESETS.find((p) => p.id === id);
     if (!preset) return;
-    const ratioId = form.ratioId && form.ratioId !== "custom" ? form.ratioId : "1:1";
+    const ratioId = form.ratioId && form.ratioId !== "custom" ? form.ratioId : "3:4";
     const { width, height } = resolutionFor(ratioId, preset.megapixels);
     set({
       presetId: id,
@@ -265,6 +414,42 @@ export function GeneratorForm({ engine, loadRequest, referenceRequest, onSubmit 
     set({ ...patch, ratioId: "custom", presetId: "custom" });
   };
 
+  const savePromptPreset = () => {
+    const prompt = form.prompt.trim();
+    if (!prompt) return;
+    const name = window.prompt("프롬프트 프리셋 이름을 입력하세요")?.trim();
+    if (!name) return;
+    const preset = { id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`, name, prompt };
+    try {
+      writePromptPresets([...promptPresets, preset]);
+    } catch {
+      toast.error("프롬프트 프리셋을 저장하지 못했습니다");
+      return;
+    }
+    setSelectedPromptPresetId(preset.id);
+    toast.success(`‘${name}’ 프롬프트를 저장했습니다`);
+  };
+
+  const applyPromptPreset = (id: string) => {
+    const preset = promptPresets.find((item) => item.id === id);
+    if (!preset) return;
+    setSelectedPromptPresetId(id);
+    set({ prompt: preset.prompt });
+  };
+
+  const deletePromptPreset = () => {
+    const preset = promptPresets.find((item) => item.id === selectedPromptPresetId);
+    if (!preset) return;
+    try {
+      writePromptPresets(promptPresets.filter((item) => item.id !== preset.id));
+    } catch {
+      toast.error("프롬프트 프리셋을 삭제하지 못했습니다");
+      return;
+    }
+    setSelectedPromptPresetId("");
+    toast(`‘${preset.name}’ 프롬프트를 삭제했습니다`);
+  };
+
   const finalPrompt = useMemo(() => {
     const style = STYLE_PRESETS.find((s) => s.id === form.styleId);
     const base = form.prompt.trim();
@@ -285,7 +470,10 @@ export function GeneratorForm({ engine, loadRequest, referenceRequest, onSubmit 
           textEncoder: form.textEncoder || pickTextEncoder(textEncoders),
         },
         count,
+        batchEach,
       );
+      // 배치 편집이면 이후 끝나는 작업의 참조를 폼에서 걷어낸다. 시계 오차를 감안해 조금 앞선 시각을 기준으로 삼는다.
+      setBatchStartedAt(batchEach ? Date.now() - 5_000 : null);
     } finally {
       setSubmitting(false);
     }
@@ -308,7 +496,7 @@ export function GeneratorForm({ engine, loadRequest, referenceRequest, onSubmit 
         <div className="flex flex-col gap-2">
           <div className="flex items-center justify-between">
             <Label htmlFor="prompt">프롬프트</Label>
-            <div className="flex items-center gap-1">
+            <div className="flex flex-wrap items-center justify-end gap-1">
               <Tooltip>
                 <TooltipTrigger
                   render={
@@ -324,6 +512,29 @@ export function GeneratorForm({ engine, loadRequest, referenceRequest, onSubmit 
                 </TooltipTrigger>
                 <TooltipContent>예시 프롬프트를 무작위로 채웁니다</TooltipContent>
               </Tooltip>
+              <Button variant="ghost" size="xs" disabled={!form.prompt.trim()} onClick={savePromptPreset}>
+                <BookmarkPlusIcon data-icon="inline-start" /> 저장
+              </Button>
+              <Select value={selectedPromptPresetId} onValueChange={(value) => value && applyPromptPreset(String(value))}>
+                <SelectTrigger size="sm" className="w-36" aria-label="저장한 프롬프트">
+                  <SelectValue placeholder="저장한 프롬프트" />
+                </SelectTrigger>
+                <SelectContent>
+                  {promptPresets.map((preset) => (
+                    <SelectItem key={preset.id} value={preset.id}>{preset.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Button
+                variant="ghost"
+                size="icon-xs"
+                aria-label="선택한 프롬프트 프리셋 삭제"
+                title="선택한 프롬프트 프리셋 삭제"
+                disabled={!selectedPromptPresetId}
+                onClick={deletePromptPreset}
+              >
+                <Trash2Icon />
+              </Button>
               <Button variant="ghost" size="xs" disabled={!form.prompt} onClick={() => set({ prompt: "" })}>
                 <EraserIcon data-icon="inline-start" />
                 지우기
@@ -356,19 +567,53 @@ export function GeneratorForm({ engine, loadRequest, referenceRequest, onSubmit 
             <Label>
               참조 이미지 <span className="font-normal text-muted-foreground">(선택 · 이미지 편집)</span>
             </Label>
-            <Button
-              variant="ghost"
-              size="xs"
-              disabled={uploading || form.references.length >= MAX_REFERENCES}
-              onClick={() => fileInputRef.current?.click()}
-            >
-              {uploading ? (
-                <Loader2Icon data-icon="inline-start" className="animate-spin" />
-              ) : (
-                <ImagePlusIcon data-icon="inline-start" />
-              )}
-              이미지 추가
-            </Button>
+            <div className="flex items-center gap-1">
+              {selectedRefIds.length > 0 ? (
+                <>
+                  <Button
+                    variant="ghost"
+                    size="xs"
+                    className="text-destructive hover:text-destructive"
+                    title="선택한 참조 이미지를 목록에서 제거합니다"
+                    onClick={removeSelectedReferences}
+                  >
+                    <Trash2Icon data-icon="inline-start" />
+                    {selectedRefIds.length}장 삭제
+                  </Button>
+                  <Button variant="ghost" size="xs" onClick={() => setSelectedRefs(new Set())}>
+                    선택 해제
+                  </Button>
+                </>
+              ) : form.references.length > 1 ? (
+                <Button
+                  variant="ghost"
+                  size="xs"
+                  className="text-destructive hover:text-destructive"
+                  title="참조 이미지를 모두 목록에서 제거합니다 (서버 파일은 보관함에 남습니다)"
+                  onClick={removeAllReferences}
+                >
+                  <Trash2Icon data-icon="inline-start" />
+                  모두 제거
+                </Button>
+              ) : null}
+              <Button variant="ghost" size="xs" title="올려 둔 참조 이미지에서 고르기" onClick={() => setLibraryOpen(true)}>
+                <ImagesIcon data-icon="inline-start" />
+                보관함
+              </Button>
+              <Button
+                variant="ghost"
+                size="xs"
+                disabled={uploading}
+                onClick={() => fileInputRef.current?.click()}
+              >
+                {uploading ? (
+                  <Loader2Icon data-icon="inline-start" className="animate-spin" />
+                ) : (
+                  <ImagePlusIcon data-icon="inline-start" />
+                )}
+                이미지 추가
+              </Button>
+            </div>
             <input
               ref={fileInputRef}
               type="file"
@@ -396,36 +641,105 @@ export function GeneratorForm({ engine, loadRequest, referenceRequest, onSubmit 
           >
             {form.references.length === 0 ? (
               <p className="py-2 text-center text-xs text-muted-foreground">
-                이미지를 끌어다 놓거나 [이미지 추가]를 누르세요. 최대 {MAX_REFERENCES}장. 넣으면 프롬프트를 편집 지시로
-                해석합니다.
+                이미지를 끌어다 놓거나 [이미지 추가]·[보관함]을 누르세요. 넣으면 프롬프트를 편집 지시로 해석합니다.
+                {MAX_REFERENCES}장까지는 한 작업에서 합성하고, 여러 장을 고르면 각 이미지에 프롬프트를 따로 적용하는 배치
+                편집도 할 수 있습니다. 배치 편집의 이미지 수에는 제한이 없습니다.
               </p>
             ) : (
-              <div className="flex flex-wrap gap-2">
-                {form.references.map((id, i) => (
-                  <div key={id} className="group relative size-20 overflow-hidden rounded-md border bg-muted">
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img src={uploadUrl(id)} alt={`참조 이미지 ${i + 1}`} className="size-full object-cover" />
-                    <span className="absolute bottom-1 left-1 rounded bg-black/60 px-1 text-[10px] tabular-nums text-white">
-                      {i + 1}
-                    </span>
-                    <button
-                      type="button"
-                      aria-label="참조 이미지 제거"
-                      onClick={() => removeReference(id)}
-                      className="absolute top-1 right-1 flex size-5 items-center justify-center rounded-full bg-black/60 text-white opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100"
+              <div ref={thumbsRef} className="flex max-h-64 flex-wrap gap-2 overflow-y-auto">
+                {form.references.map((id, i) => {
+                  const isSelected = selectedRefs.has(id);
+                  return (
+                    <div
+                      key={id}
+                      role="checkbox"
+                      aria-checked={isSelected}
+                      aria-label={`참조 이미지 ${i + 1} 선택`}
+                      tabIndex={0}
+                      onClick={() => toggleSelectedRef(id)}
+                      onKeyDown={(e) => {
+                        if (e.key === " " || e.key === "Enter") {
+                          e.preventDefault();
+                          toggleSelectedRef(id);
+                        }
+                      }}
+                      className={cn(
+                        "group relative size-20 cursor-pointer overflow-hidden rounded-md border bg-muted outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                        isSelected && "ring-2 ring-primary ring-offset-2 ring-offset-background",
+                      )}
                     >
-                      <XIcon className="size-3" />
-                    </button>
-                  </div>
-                ))}
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img src={uploadUrl(id)} alt={`참조 이미지 ${i + 1}`} className="size-full object-cover" />
+                      <Checkbox
+                        checked={isSelected}
+                        tabIndex={-1}
+                        onCheckedChange={() => toggleSelectedRef(id)}
+                        onClick={(e) => e.stopPropagation()}
+                        aria-label={`참조 이미지 ${i + 1} 선택`}
+                        className={cn(
+                          "absolute top-1 left-1 bg-background transition-opacity",
+                          isSelected ? "opacity-100" : "opacity-0 group-hover:opacity-100 group-focus-visible:opacity-100",
+                        )}
+                      />
+                      <span className="absolute bottom-1 left-1 rounded bg-black/60 px-1 text-[10px] tabular-nums text-white">
+                        {i + 1}
+                      </span>
+                      <button
+                        type="button"
+                        aria-label="참조 이미지 제거"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          removeReference(id);
+                        }}
+                        className="absolute top-1 right-1 flex size-5 items-center justify-center rounded-full bg-black/60 text-white opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100"
+                      >
+                        <XIcon className="size-3" />
+                      </button>
+                    </div>
+                  );
+                })}
               </div>
             )}
           </div>
+          {form.references.length > 1 ? (
+            <div className="flex flex-col gap-1.5">
+              <ToggleGroup
+                value={[referenceMode]}
+                onValueChange={(v) => v[0] && set({ referenceMode: v[0] as "combined" | "each" })}
+                variant="outline"
+                size="sm"
+                className="w-full"
+              >
+                <ToggleGroupItem
+                  value="combined"
+                  className="flex-1"
+                  disabled={form.references.length > MAX_REFERENCES}
+                  title={
+                    form.references.length > MAX_REFERENCES
+                      ? `합성은 ${MAX_REFERENCES}장까지만 됩니다. 참조를 줄이면 고를 수 있습니다.`
+                      : "모든 참조를 한 작업에 넣어 합성·편집합니다"
+                  }
+                >
+                  한 작업에서 합성
+                </ToggleGroupItem>
+                <ToggleGroupItem value="each" className="flex-1" title="참조 한 장마다 같은 프롬프트를 적용한 작업을 따로 만듭니다">
+                  각 이미지에 따로 적용
+                </ToggleGroupItem>
+              </ToggleGroup>
+              <p className="text-xs text-muted-foreground">
+                {batchEach
+                  ? `배치 편집: 참조 ${form.references.length}장에 같은 프롬프트를 각각 적용해 ${form.references.length}개 작업을 만듭니다.`
+                  : `합성: 프롬프트에서 "첫 번째", "두 번째"로 각 참조를 가리킬 수 있습니다.`}
+              </p>
+            </div>
+          ) : null}
           {editing ? (
             form.engine === "comfyui" ? (
               <div className="flex flex-col gap-1.5">
                 <label className="flex items-center justify-between text-xs">
-                  <span className="text-muted-foreground">출력 크기를 첫 참조 이미지에 맞추기</span>
+                  <span className="text-muted-foreground">
+                    {batchEach ? "출력 크기를 각 참조 이미지에 맞추기" : "출력 크기를 첫 참조 이미지에 맞추기"}
+                  </span>
                   <Switch
                     size="sm"
                     checked={form.followReferenceSize}
@@ -883,17 +1197,26 @@ export function GeneratorForm({ engine, loadRequest, referenceRequest, onSubmit 
         <div className="flex flex-col gap-2">
           <Button size="lg" className="w-full" disabled={!canSubmit} onClick={() => void handleSubmit()}>
             {submitting ? <Loader2Icon data-icon="inline-start" className="animate-spin" /> : <SparklesIcon data-icon="inline-start" />}
-            {count > 1 ? `${count}장 생성 시작` : "이미지 생성 시작"}
+            {batchEach
+              ? `${form.references.length}장 배치 편집 시작${count > 1 ? ` (${form.references.length * count}개 작업)` : ""}`
+              : count > 1
+                ? `${count}장 생성 시작`
+                : "이미지 생성 시작"}
           </Button>
           <p className="text-center text-xs text-muted-foreground">
             {editing && form.followReferenceSize && form.engine === "comfyui"
               ? "참조 이미지 크기"
               : `${form.width} × ${form.height}`}{" "}
             · {form.steps}스텝 · {modelSummary}
-            {editing ? ` · 편집(참조 ${form.references.length}장)` : ""} · ⌘/Ctrl + Enter 로도 시작할 수 있습니다
+            {editing
+              ? batchEach
+                ? ` · 배치 편집(참조 ${form.references.length}장 x ${count})`
+                : ` · 편집(참조 ${form.references.length}장)`
+              : ""} · ⌘/Ctrl + Enter 로도 시작할 수 있습니다
           </p>
         </div>
       </CardContent>
+      <UploadLibrary open={libraryOpen} onOpenChange={setLibraryOpen} current={form.references} onPick={addReferences} />
     </Card>
   );
 }

@@ -1,4 +1,4 @@
-import type { CreateJobsRequest, EngineStatus, Job, UploadInfo } from "@/lib/types";
+import type { CreateJobsRequest, EngineStatus, Job, UploadEntry, UploadInfo } from "@/lib/types";
 
 async function request<T>(url: string, init?: RequestInit): Promise<T> {
   const res = await fetch(url, {
@@ -14,7 +14,7 @@ async function request<T>(url: string, init?: RequestInit): Promise<T> {
 }
 
 export const api = {
-  listJobs: () => request<{ jobs: Job[] }>("/api/jobs"),
+  listJobs: () => request<{ jobs: Job[] }>("/api/jobs", { cache: "no-store" }),
   createJobs: (body: CreateJobsRequest) =>
     request<{ jobs: Job[] }>("/api/jobs", { method: "POST", body: JSON.stringify(body) }),
   cancelJob: (id: string) => request<{ job: Job }>(`/api/jobs/${id}/cancel`, { method: "POST" }),
@@ -22,6 +22,7 @@ export const api = {
   deleteJobs: (ids: string[]) =>
     request<{ deleted: string[] }>("/api/jobs", { method: "DELETE", body: JSON.stringify({ ids }) }),
   status: () => request<EngineStatus>("/api/status"),
+  listUploads: () => request<{ uploads: UploadEntry[] }>("/api/uploads"),
   upload: async (file: File): Promise<UploadInfo> => {
     const body = new FormData();
     body.append("file", file);

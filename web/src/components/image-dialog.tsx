@@ -10,6 +10,7 @@ import {
   RefreshCwIcon,
   SlidersHorizontalIcon,
   Trash2Icon,
+  XIcon,
 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
@@ -86,7 +87,21 @@ export function ImageDialog({
   return (
     <>
       <Dialog open={!!job} onOpenChange={(open) => !open && onClose()}>
-        <DialogContent className="max-h-[92vh] gap-0 overflow-hidden p-0 sm:max-w-[min(1200px,calc(100vw-2rem))]">
+        <DialogContent
+          showCloseButton={false}
+          className="max-h-[92vh] gap-0 overflow-hidden p-0 sm:max-w-[min(1200px,calc(100vw-2rem))]"
+        >
+          {/* 기본 닫기 버튼은 어두운 이미지 영역 위에서 보이지 않아, 항상 보이는 버튼으로 대체한다 */}
+          <Button
+            variant="secondary"
+            size="sm"
+            aria-label="닫기"
+            className="absolute top-2 right-2 z-10 bg-background/90 shadow-sm"
+            onClick={onClose}
+          >
+            <XIcon data-icon="inline-start" />
+            닫기
+          </Button>
           {job && p ? (
             <div className="grid max-h-[92vh] md:grid-cols-[minmax(0,1fr)_360px]">
               <div className="relative flex items-center justify-center bg-black/90 md:min-h-[60vh]">
@@ -268,6 +283,10 @@ export function ImageDialog({
                     <Button variant="destructive" className="col-span-2" onClick={() => setConfirmDelete(true)}>
                       <Trash2Icon data-icon="inline-start" />
                       삭제
+                    </Button>
+                    <Button variant="ghost" className="col-span-2" onClick={onClose}>
+                      <XIcon data-icon="inline-start" />
+                      닫고 목록으로 돌아가기
                     </Button>
                   </div>
                 </div>

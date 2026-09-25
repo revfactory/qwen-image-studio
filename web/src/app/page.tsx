@@ -1,12 +1,14 @@
 "use client";
 
 import { useCallback, useRef, useState } from "react";
+import { ImageIcon, ListTodoIcon } from "lucide-react";
 import { toast } from "sonner";
 import { ActiveJobs } from "@/components/active-jobs";
 import { Gallery } from "@/components/gallery";
 import { GeneratorForm, type LoadRequest, type ReferenceRequest } from "@/components/generator-form";
 import { api } from "@/lib/client-api";
 import { Header } from "@/components/header";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useJobs } from "@/hooks/use-jobs";
 import type { GenerationParams, Job } from "@/lib/types";
 
@@ -15,12 +17,14 @@ export default function Home() {
     useJobs();
   const [loadRequest, setLoadRequest] = useState<LoadRequest | null>(null);
   const [referenceRequest, setReferenceRequest] = useState<ReferenceRequest | null>(null);
+  const [resultsTab, setResultsTab] = useState("progress");
   const formRef = useRef<HTMLDivElement>(null);
 
   const handleSubmit = useCallback(
-    async (params: GenerationParams, count: number) => {
+    async (params: GenerationParams, count: number, perReference = false) => {
       try {
-        await createJobs(params, count);
+        setResultsTab("progress");
+        await createJobs(params, count, perReference);
       } catch (err) {
         toast.error(err instanceof Error ? err.message : "작업을 추가하지 못했습니다");
       }
@@ -39,9 +43,9 @@ export default function Home() {
     if (jobs.length === 0) return;
     try {
       const ids: string[] = [];
-      for (const job of jobs) {
-        const info = await api.uploadFromJob(job.id);
-        ids.push(info.id);
+      for (let i = 0; i < jobs.length; i += 8) {
+        const copied = await Promise.all(jobs.slice(i, i + 8).map((job) => api.uploadFromJob(job.id)));
+        ids.push(...copied.map((info) => info.id));
       }
       setReferenceRequest({ ids, mode, nonce: Date.now() });
       formRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -70,20 +74,35 @@ export default function Home() {
               engine={engine}
               loadRequest={loadRequest}
               referenceRequest={referenceRequest}
+              finishedJobs={finished}
               onSubmit={handleSubmit}
             />
           </div>
-          <div className="flex min-w-0 flex-col gap-8">
-            <ActiveJobs jobs={active} previews={previews} onCancel={(id) => void cancelJob(id)} />
-            <Gallery
-              jobs={finished}
-              loaded={loaded}
-              onDelete={(ids) => void deleteJobs(ids)}
-              onLoadParams={handleLoadParams}
-              onRegenerate={handleRegenerate}
-              onAddReferences={(jobs) => void handleReferences(jobs, "add")}
-              onEditImage={(job) => void handleReferences([job], "replace")}
-            />
+          <div className="flex min-w-0 flex-col">
+            <Tabs value={resultsTab} onValueChange={(value) => setResultsTab(value as string)}>
+              <TabsList className="w-full sm:w-fit">
+                <TabsTrigger value="progress" className="gap-2">
+                  <ListTodoIcon /> 진행 중 <span className="tabular-nums">{active.length}</span>
+                </TabsTrigger>
+                <TabsTrigger value="gallery" className="gap-2">
+                  <ImageIcon /> 완료 갤러리 <span className="tabular-nums">{finished.filter((job) => job.status === "done").length}</span>
+                </TabsTrigger>
+              </TabsList>
+              <TabsContent value="progress" className="mt-4">
+                <ActiveJobs jobs={active} previews={previews} onCancel={(id) => void cancelJob(id)} />
+              </TabsContent>
+              <TabsContent value="gallery" className="mt-4">
+                <Gallery
+                  jobs={finished}
+                  loaded={loaded}
+                  onDelete={(ids) => void deleteJobs(ids)}
+                  onLoadParams={handleLoadParams}
+                  onRegenerate={handleRegenerate}
+                  onAddReferences={(jobs) => void handleReferences(jobs, "add")}
+                  onEditImage={(job) => void handleReferences([job], "replace")}
+                />
+              </TabsContent>
+            </Tabs>
           </div>
         </div>
       </main>

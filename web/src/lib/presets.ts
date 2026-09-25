@@ -174,9 +174,9 @@ export function pickTextEncoder(files: string[], prefer?: string): string {
 export const DEFAULT_PARAMS: GenerationParams = {
   prompt: "",
   negativePrompt: "",
-  width: 1024,
-  height: 1024,
-  steps: 40,
+  width: 576,
+  height: 768,
+  steps: 20,
   cfg: 1,
   seed: null,
   sampler: "euler",
@@ -188,8 +188,8 @@ export const DEFAULT_PARAMS: GenerationParams = {
   references: [],
   followReferenceSize: true,
   imageStrength: 0.6,
-  presetId: "standard",
-  ratioId: "1:1",
+  presetId: "draft",
+  ratioId: "3:4",
   styleId: "none",
 };
 

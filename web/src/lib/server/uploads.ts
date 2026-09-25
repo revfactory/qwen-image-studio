@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import sharp from "sharp";
-import type { UploadInfo } from "@/lib/types";
+import type { UploadEntry, UploadInfo } from "@/lib/types";
 import { ensureDirs, UPLOADS_DIR } from "./paths";
 import { readPngSize } from "./png";
 
@@ -49,6 +49,40 @@ export function uploadInfo(id: string): UploadInfo | null {
   const file = uploadPath(id);
   const { width, height } = readPngSize(file);
   return { id, width, height, bytes: fs.statSync(file).size };
+}
+
+/** 업로드 폴더의 모든 이미지를 최신순으로 나열한다. */
+export function listUploads(): UploadEntry[] {
+  ensureDirs();
+  const entries: UploadEntry[] = [];
+  for (const name of fs.readdirSync(UPLOADS_DIR)) {
+    if (!name.endsWith(".png")) continue;
+    const id = name.slice(0, -4);
+    if (!isUploadId(id)) continue;
+    const file = path.join(UPLOADS_DIR, name);
+    try {
+      const stat = fs.statSync(file);
+      const { width, height } = readPngSize(file);
+      entries.push({ id, width, height, bytes: stat.size, createdAt: stat.mtimeMs });
+    } catch {
+      /* 쓰는 중이거나 손상된 파일은 건너뛴다 */
+    }
+  }
+  return entries.sort((a, b) => b.createdAt - a.createdAt);
+}
+
+/** 업로드 폴더의 모든 이미지를 지운다. 지운 파일 수를 돌려준다. */
+export function removeAllUploads(): number {
+  let n = 0;
+  for (const e of listUploads()) {
+    try {
+      fs.unlinkSync(uploadPath(e.id));
+      n++;
+    } catch (err) {
+      console.error(`[uploads] 파일 삭제 실패 ${e.id}:`, err);
+    }
+  }
+  return n;
 }
 
 export function removeUpload(id: string): boolean {
