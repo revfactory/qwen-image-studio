@@ -15,7 +15,6 @@ import {
   Trash2Icon,
   TriangleAlertIcon,
 } from "lucide-react";
-import Image from "next/image";
 import { useCallback, useMemo, useState } from "react";
 import {
   AlertDialog,
@@ -43,7 +42,7 @@ import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ImageDialog } from "@/components/image-dialog";
 import { imageUrl } from "@/lib/client-api";
 import { truncate } from "@/lib/format";
-import { MAX_BATCH_REFERENCES, MAX_REFERENCES } from "@/lib/presets";
+import { MAX_REFERENCES } from "@/lib/presets";
 import type { GenerationParams, Job } from "@/lib/types";
 
 type Filter = "all" | "done" | "failed";
@@ -109,6 +108,24 @@ export function Gallery({ jobs, loaded, onDelete, onLoadParams, onRegenerate, on
     [visible, selected],
   );
 
+  const downloadSelected = () => {
+    if (selectedDone.length === 0) return;
+    const form = document.createElement("form");
+    form.method = "POST";
+    form.action = "/api/images/download";
+    form.style.display = "none";
+    for (const job of selectedDone) {
+      const input = document.createElement("input");
+      input.type = "hidden";
+      input.name = "id";
+      input.value = job.id;
+      form.appendChild(input);
+    }
+    document.body.appendChild(form);
+    form.submit();
+    form.remove();
+  };
+
   return (
     <section className="flex flex-col gap-3">
       <div className="flex flex-wrap items-center gap-2">
@@ -152,13 +169,21 @@ export function Gallery({ jobs, loaded, onDelete, onLoadParams, onRegenerate, on
               <Button
                 variant="outline"
                 size="sm"
-                disabled={selectedDone.length === 0 || selectedDone.length > MAX_BATCH_REFERENCES}
+                disabled={selectedDone.length === 0}
+                onClick={downloadSelected}
+                title="선택한 완료 이미지를 ZIP 파일 하나로 다운로드합니다"
+              >
+                <DownloadIcon data-icon="inline-start" />
+                {selectedDone.length > 0 ? `${selectedDone.length}장 ` : ""}ZIP 다운로드
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={selectedDone.length === 0}
                 title={
-                  selectedDone.length > MAX_BATCH_REFERENCES
-                    ? `참조 이미지는 최대 ${MAX_BATCH_REFERENCES}장까지 고를 수 있습니다`
-                    : selectedDone.length > MAX_REFERENCES
-                      ? `${MAX_REFERENCES}장을 넘으면 각 이미지에 프롬프트를 따로 적용하는 배치 편집으로 추가됩니다`
-                      : "선택한 이미지를 생성 폼의 참조 이미지에 추가합니다"
+                  selectedDone.length > MAX_REFERENCES
+                    ? `${MAX_REFERENCES}장을 넘으면 각 이미지에 프롬프트를 따로 적용하는 배치 편집으로 추가됩니다`
+                    : "선택한 이미지를 생성 폼의 참조 이미지에 추가합니다"
                 }
                 onClick={() => {
                   onAddReferences(selectedDone);
@@ -288,12 +313,14 @@ export function Gallery({ jobs, loaded, onDelete, onLoadParams, onRegenerate, on
                   aria-label="이미지 크게 보기"
                   onClick={() => (selectMode ? toggleSelected(job.id) : setOpenId(job.id))}
                 >
-                  <Image
+                  {/* Direct local image URLs avoid cold Next Image optimization on gallery loads. */}
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
                     src={imageUrl(job.id)}
                     alt={truncate(p.prompt, 100)}
-                    fill
-                    sizes="(max-width: 640px) 50vw, (max-width: 1280px) 33vw, 20vw"
-                    className="object-cover transition-transform duration-300 group-hover:scale-[1.02]"
+                    loading="lazy"
+                    decoding="async"
+                    className="size-full object-cover transition-transform duration-300 group-hover:scale-[1.02]"
                   />
                 </button>
                 <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-linear-to-t from-black/70 to-transparent p-2 pt-8 text-[11px] text-white opacity-0 transition-opacity group-hover:opacity-100">
@@ -320,7 +347,18 @@ export function Gallery({ jobs, loaded, onDelete, onLoadParams, onRegenerate, on
                     className="absolute top-2 left-2 size-5 bg-background/90"
                   />
                 ) : (
-                  <div className="absolute top-2 right-2 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
+                  <>
+                    <Button
+                      render={<a href={imageUrl(job.id, true)} download />}
+                      variant="secondary"
+                      size="icon-sm"
+                      className="absolute top-2 right-2 z-10 bg-background/90 opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100"
+                      aria-label="이미지 다운로드"
+                      title="이미지 다운로드"
+                    >
+                      <DownloadIcon />
+                    </Button>
+                    <div className="absolute top-2 right-11 z-10 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
                     <DropdownMenu>
                       <DropdownMenuTrigger
                         render={<Button variant="secondary" size="icon-sm" aria-label="더 보기" className="bg-background/90" />}
@@ -348,10 +386,6 @@ export function Gallery({ jobs, loaded, onDelete, onLoadParams, onRegenerate, on
                           <RefreshCwIcon />
                           새 시드로 재생성
                         </DropdownMenuItem>
-                        <DropdownMenuItem render={<a href={imageUrl(job.id, true)} download />}>
-                          <DownloadIcon />
-                          다운로드
-                        </DropdownMenuItem>
                         <DropdownMenuSeparator />
                         <DropdownMenuItem variant="destructive" onClick={() => setConfirmIds([job.id])}>
                           <Trash2Icon />
@@ -359,7 +393,8 @@ export function Gallery({ jobs, loaded, onDelete, onLoadParams, onRegenerate, on
                         </DropdownMenuItem>
                       </DropdownMenuContent>
                     </DropdownMenu>
-                  </div>
+                    </div>
+                  </>
                 )}
               </div>
             );

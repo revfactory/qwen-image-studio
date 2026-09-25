@@ -3,6 +3,7 @@
 import { cn } from "cn";
 import {
   ArrowLeftRightIcon,
+  BookmarkPlusIcon,
   ChevronDownIcon,
   DicesIcon,
   EraserIcon,
@@ -42,7 +43,6 @@ import {
   KNOWN_GGUF_FILES,
   KNOWN_TEXT_ENCODERS,
   MAX_BATCH,
-  MAX_BATCH_REFERENCES,
   MAX_REFERENCES,
   MFLUX_QUANTIZE_OPTIONS,
   pickGguf,
@@ -63,6 +63,51 @@ import {
 import type { Engine, EngineStatus, GenerationParams, Job } from "@/lib/types";
 
 const STORAGE_KEY = "qwen21.form.v1";
+const PROMPT_PRESETS_KEY = "qwen21.prompt-presets.v1";
+
+interface PromptPreset {
+  id: string;
+  name: string;
+  prompt: string;
+}
+
+const EMPTY_PROMPT_PRESETS: PromptPreset[] = [];
+const promptPresetSubscribers = new Set<() => void>();
+let promptPresetSnapshotRaw: string | null | undefined;
+let promptPresetSnapshot: PromptPreset[] = EMPTY_PROMPT_PRESETS;
+
+function readPromptPresets(): PromptPreset[] {
+  try {
+    const raw = window.localStorage.getItem(PROMPT_PRESETS_KEY);
+    if (raw === promptPresetSnapshotRaw) return promptPresetSnapshot;
+    promptPresetSnapshotRaw = raw;
+    const parsed: unknown = raw ? JSON.parse(raw) : [];
+    promptPresetSnapshot = Array.isArray(parsed) ? parsed as PromptPreset[] : EMPTY_PROMPT_PRESETS;
+  } catch {
+    promptPresetSnapshotRaw = null;
+    promptPresetSnapshot = EMPTY_PROMPT_PRESETS;
+  }
+  return promptPresetSnapshot;
+}
+
+function subscribePromptPresets(callback: () => void) {
+  promptPresetSubscribers.add(callback);
+  const onStorage = (event: StorageEvent) => {
+    if (event.key === PROMPT_PRESETS_KEY) callback();
+  };
+  window.addEventListener("storage", onStorage);
+  return () => {
+    promptPresetSubscribers.delete(callback);
+    window.removeEventListener("storage", onStorage);
+  };
+}
+
+function writePromptPresets(presets: PromptPreset[]) {
+  window.localStorage.setItem(PROMPT_PRESETS_KEY, JSON.stringify(presets));
+  promptPresetSnapshotRaw = undefined;
+  readPromptPresets();
+  promptPresetSubscribers.forEach((callback) => callback());
+}
 
 export interface LoadRequest {
   params: GenerationParams;
@@ -72,7 +117,7 @@ export interface LoadRequest {
 export interface ReferenceRequest {
   /** 업로드 ID 목록 */
   ids: string[];
-  /** add: 현재 목록 뒤에 덧붙인다 (최대 장수 초과분은 버림). replace: 이 이미지들로 교체한다 */
+  /** add: 현재 목록 뒤에 덧붙인다. replace: 이 이미지들로 교체한다 */
   mode: "add" | "replace";
   nonce: number;
 }
@@ -120,7 +165,19 @@ interface Saved {
 function parseSaved(raw: string | null): Saved | null {
   if (!raw) return null;
   try {
-    return JSON.parse(raw) as Saved;
+    const saved = JSON.parse(raw) as Saved;
+    const form = saved.form;
+    // Upgrade the former untouched defaults while preserving any other saved settings.
+    if (
+      form?.presetId === "standard" &&
+      form.ratioId === "1:1" &&
+      form.width === 1024 &&
+      form.height === 1024 &&
+      form.steps === 40
+    ) {
+      saved.form = { ...form, presetId: "draft", ratioId: "3:4", width: 576, height: 768, steps: 20 };
+    }
+    return saved;
   } catch {
     return null;
   }
@@ -148,6 +205,8 @@ export function GeneratorForm({ engine, loadRequest, referenceRequest, finishedJ
   /** 삭제하려고 선택한 참조 이미지 ID (폼 저장 대상이 아니므로 폼과 분리) */
   const [selectedRefs, setSelectedRefs] = useState<Set<string>>(new Set());
   const [libraryOpen, setLibraryOpen] = useState(false);
+  const promptPresets = useSyncExternalStore(subscribePromptPresets, readPromptPresets, () => EMPTY_PROMPT_PRESETS);
+  const [selectedPromptPresetId, setSelectedPromptPresetId] = useState("");
   /** 배치 편집을 시작한 시각. 이 뒤에 끝난 작업의 참조는 폼에서 뺀다 */
   const [batchStartedAt, setBatchStartedAt] = useState<number | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -181,7 +240,7 @@ export function GeneratorForm({ engine, loadRequest, referenceRequest, finishedJ
       referenceRequest.mode === "replace"
         ? incoming
         : [...form.references, ...incoming.filter((id) => !form.references.includes(id))];
-    const next = merged.slice(0, MAX_BATCH_REFERENCES);
+    const next = merged;
     // 합성 상한을 넘게 담기면 각 이미지에 따로 적용하는 배치 편집으로 바꾼다.
     const referenceMode = next.length > MAX_REFERENCES ? "each" : form.referenceMode;
     setFormOverride({ ...form, references: next, referenceMode });
@@ -189,7 +248,7 @@ export function GeneratorForm({ engine, loadRequest, referenceRequest, finishedJ
       nonce: referenceRequest.nonce,
       mode: referenceRequest.mode,
       total: next.length,
-      dropped: merged.length - next.length,
+      dropped: 0,
       batch: referenceMode === "each" && next.length > 1,
     });
   }
@@ -211,9 +270,7 @@ export function GeneratorForm({ engine, loadRequest, referenceRequest, finishedJ
   // 참조 이미지 반영 결과를 알린다 (외부 시스템인 토스트 호출이므로 effect 에 둔다)
   useEffect(() => {
     if (!refNotice) return;
-    if (refNotice.dropped > 0) {
-      toast.warning(`참조 이미지는 최대 ${MAX_BATCH_REFERENCES}장입니다. ${refNotice.dropped}장은 추가하지 않았습니다.`);
-    } else if (refNotice.batch) {
+    if (refNotice.batch) {
       toast(`참조 이미지 ${refNotice.total}장. 각 이미지에 프롬프트를 따로 적용하는 배치 편집으로 생성합니다.`);
     } else if (refNotice.mode === "replace") {
       toast("이 이미지를 참조로 편집합니다. 어떻게 바꿀지 프롬프트에 쓰고 생성을 시작하세요.");
@@ -259,7 +316,7 @@ export function GeneratorForm({ engine, loadRequest, referenceRequest, finishedJ
   /** 참조 ID 들을 덧붙인다. 합성 상한을 넘으면 배치 편집으로 바꾼다. */
   const addReferences = (ids: string[]) => {
     patchFn((f) => {
-      const merged = [...f.references, ...ids.filter((id) => !f.references.includes(id))].slice(0, MAX_BATCH_REFERENCES);
+      const merged = [...f.references, ...ids.filter((id) => !f.references.includes(id))];
       const nextMode = merged.length > MAX_REFERENCES ? "each" : f.referenceMode;
       if (nextMode === "each" && f.referenceMode !== "each") {
         toast(`참조 이미지 ${merged.length}장. 각 이미지에 프롬프트를 따로 적용하는 배치 편집으로 생성합니다.`);
@@ -270,14 +327,8 @@ export function GeneratorForm({ engine, loadRequest, referenceRequest, finishedJ
 
   const handleFiles = async (files: FileList | null) => {
     if (!files || files.length === 0) return;
-    const room = MAX_BATCH_REFERENCES - form.references.length;
-    if (room <= 0) {
-      toast.error(`참조 이미지는 최대 ${MAX_BATCH_REFERENCES}장까지 넣을 수 있습니다`);
-      return;
-    }
     const list = Array.from(files)
-      .filter((f) => f.type.startsWith("image/"))
-      .slice(0, room);
+      .filter((f) => f.type.startsWith("image/"));
     if (list.length === 0) return;
     setUploading(true);
     try {
@@ -333,7 +384,7 @@ export function GeneratorForm({ engine, loadRequest, referenceRequest, finishedJ
   const applyQuality = (id: string) => {
     const preset = QUALITY_PRESETS.find((p) => p.id === id);
     if (!preset) return;
-    const ratioId = form.ratioId && form.ratioId !== "custom" ? form.ratioId : "1:1";
+    const ratioId = form.ratioId && form.ratioId !== "custom" ? form.ratioId : "3:4";
     const { width, height } = resolutionFor(ratioId, preset.megapixels);
     set({
       presetId: id,
@@ -361,6 +412,42 @@ export function GeneratorForm({ engine, loadRequest, referenceRequest, finishedJ
 
   const setSize = (patch: { width?: number; height?: number }) => {
     set({ ...patch, ratioId: "custom", presetId: "custom" });
+  };
+
+  const savePromptPreset = () => {
+    const prompt = form.prompt.trim();
+    if (!prompt) return;
+    const name = window.prompt("프롬프트 프리셋 이름을 입력하세요")?.trim();
+    if (!name) return;
+    const preset = { id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`, name, prompt };
+    try {
+      writePromptPresets([...promptPresets, preset]);
+    } catch {
+      toast.error("프롬프트 프리셋을 저장하지 못했습니다");
+      return;
+    }
+    setSelectedPromptPresetId(preset.id);
+    toast.success(`‘${name}’ 프롬프트를 저장했습니다`);
+  };
+
+  const applyPromptPreset = (id: string) => {
+    const preset = promptPresets.find((item) => item.id === id);
+    if (!preset) return;
+    setSelectedPromptPresetId(id);
+    set({ prompt: preset.prompt });
+  };
+
+  const deletePromptPreset = () => {
+    const preset = promptPresets.find((item) => item.id === selectedPromptPresetId);
+    if (!preset) return;
+    try {
+      writePromptPresets(promptPresets.filter((item) => item.id !== preset.id));
+    } catch {
+      toast.error("프롬프트 프리셋을 삭제하지 못했습니다");
+      return;
+    }
+    setSelectedPromptPresetId("");
+    toast(`‘${preset.name}’ 프롬프트를 삭제했습니다`);
   };
 
   const finalPrompt = useMemo(() => {
@@ -409,7 +496,7 @@ export function GeneratorForm({ engine, loadRequest, referenceRequest, finishedJ
         <div className="flex flex-col gap-2">
           <div className="flex items-center justify-between">
             <Label htmlFor="prompt">프롬프트</Label>
-            <div className="flex items-center gap-1">
+            <div className="flex flex-wrap items-center justify-end gap-1">
               <Tooltip>
                 <TooltipTrigger
                   render={
@@ -425,6 +512,29 @@ export function GeneratorForm({ engine, loadRequest, referenceRequest, finishedJ
                 </TooltipTrigger>
                 <TooltipContent>예시 프롬프트를 무작위로 채웁니다</TooltipContent>
               </Tooltip>
+              <Button variant="ghost" size="xs" disabled={!form.prompt.trim()} onClick={savePromptPreset}>
+                <BookmarkPlusIcon data-icon="inline-start" /> 저장
+              </Button>
+              <Select value={selectedPromptPresetId} onValueChange={(value) => value && applyPromptPreset(String(value))}>
+                <SelectTrigger size="sm" className="w-36" aria-label="저장한 프롬프트">
+                  <SelectValue placeholder="저장한 프롬프트" />
+                </SelectTrigger>
+                <SelectContent>
+                  {promptPresets.map((preset) => (
+                    <SelectItem key={preset.id} value={preset.id}>{preset.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Button
+                variant="ghost"
+                size="icon-xs"
+                aria-label="선택한 프롬프트 프리셋 삭제"
+                title="선택한 프롬프트 프리셋 삭제"
+                disabled={!selectedPromptPresetId}
+                onClick={deletePromptPreset}
+              >
+                <Trash2Icon />
+              </Button>
               <Button variant="ghost" size="xs" disabled={!form.prompt} onClick={() => set({ prompt: "" })}>
                 <EraserIcon data-icon="inline-start" />
                 지우기
@@ -493,7 +603,7 @@ export function GeneratorForm({ engine, loadRequest, referenceRequest, finishedJ
               <Button
                 variant="ghost"
                 size="xs"
-                disabled={uploading || form.references.length >= MAX_BATCH_REFERENCES}
+                disabled={uploading}
                 onClick={() => fileInputRef.current?.click()}
               >
                 {uploading ? (
@@ -533,7 +643,7 @@ export function GeneratorForm({ engine, loadRequest, referenceRequest, finishedJ
               <p className="py-2 text-center text-xs text-muted-foreground">
                 이미지를 끌어다 놓거나 [이미지 추가]·[보관함]을 누르세요. 넣으면 프롬프트를 편집 지시로 해석합니다.
                 {MAX_REFERENCES}장까지는 한 작업에서 합성하고, 여러 장을 고르면 각 이미지에 프롬프트를 따로 적용하는 배치
-                편집도 할 수 있습니다 (최대 {MAX_BATCH_REFERENCES}장).
+                편집도 할 수 있습니다. 배치 편집의 이미지 수에는 제한이 없습니다.
               </p>
             ) : (
               <div ref={thumbsRef} className="flex max-h-64 flex-wrap gap-2 overflow-y-auto">

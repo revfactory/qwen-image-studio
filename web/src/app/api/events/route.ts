@@ -23,9 +23,11 @@ export async function GET(req: Request) {
           closed = true;
         }
       };
+      unsubscribe = subscribe(send);
+      // Subscribe before taking the snapshot so job events cannot fall into
+      // the gap between the initial list and opening the live stream.
       send({ type: "snapshot", jobs: store.list() });
       void engineStatus().then((status) => send({ type: "engine", status }));
-      unsubscribe = subscribe(send);
       // 15초마다 엔진 상태를 함께 보내 연결 유지와 상태 갱신을 겸한다.
       ping = setInterval(() => {
         void engineStatus()

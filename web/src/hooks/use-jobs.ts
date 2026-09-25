@@ -28,10 +28,12 @@ export function useJobs() {
     let source: EventSource | null = null;
     let retry: number | undefined;
     let stopped = false;
+    let hasSnapshot = false;
 
     const handle = (event: ServerEvent) => {
       switch (event.type) {
         case "snapshot": {
+          hasSnapshot = true;
           for (const j of event.jobs) prevStatus.current[j.id] = j.status;
           setState((s) => ({
             ...s,
@@ -79,6 +81,17 @@ export function useJobs() {
           break;
       }
     };
+
+    // Load the persisted job list over HTTP as well as SSE. On a cold Next.js
+    // start this lets the gallery populate without waiting for the event route
+    // to finish compiling and opening its long-lived stream.
+    void api.listJobs().then(({ jobs }) => {
+      if (stopped || hasSnapshot) return;
+      for (const job of jobs) prevStatus.current[job.id] = job.status;
+      setState((s) => (s.loaded ? s : { ...s, jobs: Object.fromEntries(jobs.map((job) => [job.id, job])), loaded: true }));
+    }).catch((err) => {
+      console.error("작업 목록을 불러오지 못했습니다", err);
+    });
 
     const connect = () => {
       if (stopped) return;

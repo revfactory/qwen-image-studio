@@ -8,7 +8,6 @@ import {
   isGgufTextEncoder,
   KNOWN_TEXT_ENCODERS,
   MAX_BATCH,
-  MAX_BATCH_REFERENCES,
   MAX_REFERENCES,
   round32,
   STEPS_MAX,
@@ -89,7 +88,7 @@ export async function POST(req: Request) {
   let variants: GenerationParams[];
   try {
     if (body.perReference) {
-      const batch = normalize(body.params ?? {}, MAX_BATCH_REFERENCES);
+      const batch = normalize(body.params ?? {}, Number.POSITIVE_INFINITY);
       if (batch.references.length === 0) throw new Error("배치 편집에는 참조 이미지가 필요합니다.");
       variants = batch.references.map((id) => ({ ...batch, references: [id] }));
     } else {

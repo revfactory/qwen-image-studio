@@ -34,7 +34,7 @@ export interface GenerationParams {
   followReferenceSize: boolean;
   /**
    * 참조 이미지를 다루는 방식. combined: 모든 참조를 한 작업에 넣어 합성/편집한다 (최대 MAX_REFERENCES).
-   * each: 참조 한 장마다 같은 프롬프트를 적용한 작업을 따로 만든다 (배치 편집, 최대 MAX_BATCH_REFERENCES).
+   * each: 참조 한 장마다 같은 프롬프트를 적용한 작업을 따로 만든다 (배치 편집, 이미지 수 제한 없음).
    * 서버는 이 값을 저장하지 않고 요청의 perReference 로만 받는다.
    */
   referenceMode?: "combined" | "each";

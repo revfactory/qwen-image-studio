@@ -105,8 +105,6 @@ export const CFG_MIN = 1;
 export const CFG_MAX = 10;
 export const MAX_BATCH = 8;
 export const MAX_REFERENCES = 3;
-/** 배치 편집(참조 한 장당 작업 하나)에서 한 번에 고를 수 있는 참조 이미지 수 */
-export const MAX_BATCH_REFERENCES = 100;
 export const MAX_UPLOAD_BYTES = 25 * 1024 * 1024;
 
 export const KNOWN_GGUF_FILES = ["qwen-image-2.1-Q8_0.gguf", "qwen-image-2.1-Q4_K_M.gguf"];
@@ -176,9 +174,9 @@ export function pickTextEncoder(files: string[], prefer?: string): string {
 export const DEFAULT_PARAMS: GenerationParams = {
   prompt: "",
   negativePrompt: "",
-  width: 1024,
-  height: 1024,
-  steps: 40,
+  width: 576,
+  height: 768,
+  steps: 20,
   cfg: 1,
   seed: null,
   sampler: "euler",
@@ -190,8 +188,8 @@ export const DEFAULT_PARAMS: GenerationParams = {
   references: [],
   followReferenceSize: true,
   imageStrength: 0.6,
-  presetId: "standard",
-  ratioId: "1:1",
+  presetId: "draft",
+  ratioId: "3:4",
   styleId: "none",
 };
 

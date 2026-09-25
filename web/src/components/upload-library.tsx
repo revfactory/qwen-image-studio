@@ -20,7 +20,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { api, uploadUrl } from "@/lib/client-api";
 import { formatBytes, formatDateTime } from "@/lib/format";
-import { MAX_BATCH_REFERENCES, MAX_REFERENCES } from "@/lib/presets";
+import { MAX_REFERENCES } from "@/lib/presets";
 import type { UploadEntry } from "@/lib/types";
 
 interface Props {
@@ -73,9 +73,7 @@ function LibraryBody({ current, onPick, onClose }: { current: string[]; onPick: 
 
   const currentSet = useMemo(() => new Set(current), [current]);
   const pickable = useMemo(() => (entries ?? []).filter((e) => !currentSet.has(e.id)), [entries, currentSet]);
-  const room = MAX_BATCH_REFERENCES - current.length;
   const selectedIds = [...selected];
-  const overflow = selectedIds.length > room;
 
   const toggle = (id: string) =>
     setSelected((s) => {
@@ -87,10 +85,10 @@ function LibraryBody({ current, onPick, onClose }: { current: string[]; onPick: 
 
   const allPickableSelected = pickable.length > 0 && pickable.every((e) => selected.has(e.id));
   const toggleAll = () =>
-    setSelected(allPickableSelected ? new Set() : new Set(pickable.slice(0, Math.max(room, 0)).map((e) => e.id)));
+    setSelected(allPickableSelected ? new Set() : new Set(pickable.map((e) => e.id)));
 
   const pick = () => {
-    if (selectedIds.length === 0 || overflow) return;
+    if (selectedIds.length === 0) return;
     // 목록 순서(최신순)대로 넣는다.
     const ordered = pickable.filter((e) => selected.has(e.id)).map((e) => e.id);
     onPick(ordered);
@@ -127,14 +125,14 @@ function LibraryBody({ current, onPick, onClose }: { current: string[]; onPick: 
         </DialogTitle>
         <DialogDescription>
           지금까지 올린 참조 이미지입니다. 여러 장을 골라 넣으면 {MAX_REFERENCES}장까지는 한 작업에서 합성하고, 그보다
-          많으면 각 이미지에 프롬프트를 따로 적용하는 배치 편집으로 바뀝니다. 한 번에 최대 {MAX_BATCH_REFERENCES}장.
+          많으면 각 이미지에 프롬프트를 따로 적용하는 배치 편집으로 바뀝니다. 배치 편집은 이미지 수 제한이 없습니다.
         </DialogDescription>
       </DialogHeader>
 
       <div className="flex items-center gap-2 border-b px-4 py-2">
         <Button variant="outline" size="sm" disabled={pickable.length === 0} onClick={toggleAll}>
           {allPickableSelected ? <SquareIcon data-icon="inline-start" /> : <CheckSquareIcon data-icon="inline-start" />}
-          {allPickableSelected ? "선택 해제" : `전체 선택${room < pickable.length ? ` (${Math.max(room, 0)}장까지)` : ""}`}
+          {allPickableSelected ? "선택 해제" : "전체 선택"}
         </Button>
         <span className="text-xs text-muted-foreground tabular-nums">
           {selectedIds.length > 0 ? `${selectedIds.length}장 선택` : "썸네일을 눌러 고르세요"}
@@ -220,17 +218,15 @@ function LibraryBody({ current, onPick, onClose }: { current: string[]; onPick: 
 
       <DialogFooter className="mx-0 mb-0 items-center sm:justify-between">
         <span className="text-xs text-muted-foreground">
-          {overflow
-            ? `폼에 넣을 수 있는 자리가 ${Math.max(room, 0)}장뿐입니다. 선택을 줄이거나 폼의 참조를 비우세요.`
-            : selectedIds.length + current.length > MAX_REFERENCES
-              ? `${selectedIds.length + current.length}장: 각 이미지에 프롬프트를 따로 적용하는 배치 편집으로 넣습니다.`
-              : ""}
+          {selectedIds.length + current.length > MAX_REFERENCES
+            ? `${selectedIds.length + current.length}장: 각 이미지에 프롬프트를 따로 적용하는 배치 편집으로 넣습니다.`
+            : ""}
         </span>
         <div className="flex gap-2">
           <Button variant="outline" onClick={onClose}>
             닫기
           </Button>
-          <Button disabled={selectedIds.length === 0 || overflow} onClick={pick}>
+          <Button disabled={selectedIds.length === 0} onClick={pick}>
             <ImagePlusIcon data-icon="inline-start" />
             {selectedIds.length > 0 ? `${selectedIds.length}장 ` : ""}참조로 넣기
           </Button>

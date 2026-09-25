@@ -14,7 +14,7 @@ async function request<T>(url: string, init?: RequestInit): Promise<T> {
 }
 
 export const api = {
-  listJobs: () => request<{ jobs: Job[] }>("/api/jobs"),
+  listJobs: () => request<{ jobs: Job[] }>("/api/jobs", { cache: "no-store" }),
   createJobs: (body: CreateJobsRequest) =>
     request<{ jobs: Job[] }>("/api/jobs", { method: "POST", body: JSON.stringify(body) }),
   cancelJob: (id: string) => request<{ job: Job }>(`/api/jobs/${id}/cancel`, { method: "POST" }),

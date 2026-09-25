@@ -83,7 +83,7 @@ export function ActiveJobs({ jobs, previews, onCancel }: Props) {
             <Card key={job.id} className="overflow-hidden">
               <CardContent className="flex gap-4">
                 <div
-                  className="relative flex w-24 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-muted sm:w-32"
+                  className="relative flex w-28 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-muted sm:w-40"
                   style={{ aspectRatio: `${p.width} / ${p.height}` }}
                 >
                   {preview ? (

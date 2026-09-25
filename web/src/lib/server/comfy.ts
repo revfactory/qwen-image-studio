@@ -294,6 +294,10 @@ class ComfyClient {
       return;
     }
     if (data instanceof ArrayBuffer) this.onBinaryMessage(data);
+    else if (ArrayBuffer.isView(data)) {
+      const view = data as ArrayBufferView;
+      this.onBinaryMessage(view.buffer.slice(view.byteOffset, view.byteOffset + view.byteLength) as ArrayBuffer);
+    }
   }
 
   private onJsonMessage(msg: { type: string; data?: Record<string, unknown> }): void {
